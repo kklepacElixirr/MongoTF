@@ -247,6 +247,62 @@ resource "aws_s3_bucket_versioning" "pipeline_artifacts" {
   }
 }
 
+# EventBridge rule to trigger pipeline on CodeCommit push
+resource "aws_iam_role" "codepipeline_events" {
+  name = "${local.name}-codepipeline-events-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Principal = {
+          Service = "events.amazonaws.com"
+        }
+        Action = "sts:AssumeRole"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "codepipeline_events" {
+  name   = "${local.name}-codepipeline-events-policy"
+  role   = aws_iam_role.codepipeline_events.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = "codepipeline:StartPipelineExecution"
+        Resource = "arn:aws:codepipeline:${local.region}:${local.account_id}:${local.name}-terraform-pipeline"
+      }
+    ]
+  })
+}
+
+resource "aws_cloudwatch_event_rule" "codepipeline_trigger" {
+  name        = "${local.name}-codepipeline-trigger"
+  description = "Trigger Terraform pipeline on push to CodeCommit"
+
+  event_pattern = jsonencode({
+    source      = ["aws.codecommit"]
+    "detail-type" = ["CodeCommit Repository State Change"]
+    resources   = ["arn:aws:codecommit:${local.region}:${local.account_id}:${var.codecommit_repository_name}"]
+    detail = {
+      event         = ["referenceCreated", "referenceUpdated"]
+      referenceType = ["branch"]
+      referenceName = ["main"]
+    }
+  })
+}
+
+resource "aws_cloudwatch_event_target" "codepipeline" {
+  rule     = aws_cloudwatch_event_rule.codepipeline_trigger.name
+  target_id = "codepipeline-terraform"
+  arn      = aws_codepipeline.terraform.arn
+  role_arn = aws_iam_role.codepipeline_events.arn
+}
+
 resource "aws_codepipeline" "terraform" {
   name     = "${local.name}-terraform-pipeline"
   role_arn = aws_iam_role.codepipeline.arn
@@ -271,6 +327,7 @@ resource "aws_codepipeline" "terraform" {
         RepositoryName       = var.codecommit_repository_name
         BranchName           = "main"
         OutputArtifactFormat = "CODE_ZIP"
+        PollForSourceChanges = "false"
       }
     }
   }

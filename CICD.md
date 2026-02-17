@@ -106,6 +106,8 @@ git push codecommit main
 
 Pipeline runs: Source (CodeCommit) → Build (Terraform init, plan, apply)
 
+The pipeline triggers automatically on push to `main` via EventBridge. If it does not trigger, run `cd cicd && terraform apply` to ensure the EventBridge rule is created.
+
 ## Branches
 
 The pipeline watches `main` by default. To add staging/development, edit `cicd/main.tf` and add more source actions or pipelines per branch.
