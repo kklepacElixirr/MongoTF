@@ -183,7 +183,7 @@ ssh -i mongo-key.pem ec2-user@$(terraform output -raw ec2_public_ip)
 | Document | Description |
 |----------|-------------|
 | [CICD.md](CICD.md) | CI/CD with CodePipeline and CodeBuild (automated apply on push) |
-| [CODECOMMIT.md](CODECOMMIT.md) | CodeCommit repo setup and migration from GitHub |
+| [CODECOMMIT.md](CODECOMMIT.md) | CodeCommit repo setup, **export AWS credentials before push**, and migration from GitHub |
 | [docs/IAM-MINIMAL-POLICIES.md](docs/IAM-MINIMAL-POLICIES.md) | Minimal IAM policies for Terraform and CodeCommit |
 
 ---

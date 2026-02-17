@@ -148,9 +148,10 @@ mongodb_password_parameter = "/your/custom/path"
 
 ## Step 5: Trigger the pipeline
 
-Push to the branch the pipeline watches (e.g. `main`):
+Push to the branch the pipeline watches (e.g. `main`). **Before pushing to CodeCommit**, set your AWS profile (see [CODECOMMIT.md — Before you push](CODECOMMIT.md#before-you-push-export-aws-credentials)):
 
 ```bash
+export AWS_PROFILE=mongotf
 git add .
 git commit -m "Terraform changes"
 git push codecommit main

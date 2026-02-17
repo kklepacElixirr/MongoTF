@@ -6,12 +6,40 @@ This project can create an **optional** CodeCommit repository via Terraform. Aft
 
 ## Table of contents
 
+- [Before you push (export AWS credentials)](#before-you-push-export-aws-credentials)
 - [When to use CodeCommit](#when-to-use-codecommit)
 - [1. Create the repo (first apply)](#1-create-the-repo-first-apply)
 - [2. Authenticate with CodeCommit](#2-authenticate-with-codecommit)
 - [3. Push from GitHub (migration)](#3-push-from-github-migration)
 - [4. Disable or remove CodeCommit](#4-disable-or-remove-codecommit)
 - [Troubleshooting](#troubleshooting)
+
+---
+
+## Before you push (export AWS credentials)
+
+CodeCommit uses your AWS credentials. **Before** `git push codecommit ...`, set your profile so the CLI uses the right account:
+
+```bash
+export AWS_PROFILE=mongotf
+git add .
+git commit -m "Your message"
+git push codecommit main
+```
+
+Or for a single push:
+
+```bash
+AWS_PROFILE=mongotf git push codecommit main
+```
+
+If you use **AWS SSO**, log in and export credentials first:
+
+```bash
+aws sso login --profile mongotf
+eval "$(aws configure export-credentials --profile mongotf --format env)"
+git push codecommit main
+```
 
 ---
 
