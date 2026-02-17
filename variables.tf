@@ -105,15 +105,3 @@ variable "ec2_mongodb_volume_size" {
   type        = number
   default     = 20
 }
-
-variable "create_codecommit_repository" {
-  description = "Create an AWS CodeCommit repository for this project"
-  type        = bool
-  default     = true
-}
-
-variable "codecommit_repository_name" {
-  description = "Name of the CodeCommit repository"
-  type        = string
-  default     = "mongotf"
-}

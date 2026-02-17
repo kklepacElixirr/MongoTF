@@ -1,6 +1,5 @@
 terraform {
-  # Backend configured via -backend-config in CI (see buildspec.yml)
-  # For local use: terraform init (without backend) or add -backend-config
+  # Backend: use -backend-config=backend.hcl (or -backend-config=key=value ...) or switch to local
   backend "s3" {}
 
   required_providers {
@@ -135,14 +134,8 @@ resource "aws_iam_role_policy" "ec2_ssm_access" {
         ]
         Resource = [
           aws_ssm_parameter.mongodb_secret_password.arn,
-          aws_ssm_parameter.mongodb_root_username.arn,
-          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/mongodb/MONGO_INITDB_ROOT_PASSWORD_NEW"
+          aws_ssm_parameter.mongodb_root_username.arn
         ]
-      },
-      {
-        Effect   = "Allow"
-        Action   = ["ssm:PutParameter", "ssm:DeleteParameter"]
-        Resource = [aws_ssm_parameter.mongodb_secret_password.arn, "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/mongodb/MONGO_INITDB_ROOT_PASSWORD_NEW"]
       },
       {
         Effect = "Allow"
@@ -151,12 +144,6 @@ resource "aws_iam_role_policy" "ec2_ssm_access" {
       }
     ]
   })
-}
-
-# So the instance can receive SSM Run Command (e.g. password rotation from pipeline)
-resource "aws_iam_role_policy_attachment" "ec2_ssm_managed" {
-  role       = aws_iam_role.ec2_mongo_role.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
 resource "aws_iam_instance_profile" "ec2_mongo" {
@@ -549,11 +536,6 @@ output "ec2_public_ip" {
   value       = aws_eip.mongo.public_ip
 }
 
-output "ec2_instance_id" {
-  description = "EC2 instance ID (for SSM Run Command, e.g. password rotation from CI/CD)"
-  value       = aws_instance.mongolab_ec2_instance.id
-}
-
 output "ec2_ami_used" {
   description = "AMI ID used for the EC2 instance"
   value       = aws_instance.mongolab_ec2_instance.ami
@@ -562,14 +544,4 @@ output "ec2_ami_used" {
 output "mongodb_connection_string" {
   description = "MongoDB connection string (with auth)"
   value       = "mongodb://${var.mongodb_root_username}:<PASSWORD>@${aws_eip.mongo.public_ip}:27017"
-}
-
-output "codecommit_clone_url_https" {
-  description = "CodeCommit HTTPS clone URL (use with git-remote-codecommit)"
-  value       = var.create_codecommit_repository ? aws_codecommit_repository.mongotf[0].clone_url_http : null
-}
-
-output "codecommit_clone_url_ssh" {
-  description = "CodeCommit SSH clone URL"
-  value       = var.create_codecommit_repository ? aws_codecommit_repository.mongotf[0].clone_url_ssh : null
 }

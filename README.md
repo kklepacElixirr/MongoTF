@@ -176,10 +176,6 @@ ssh -i mongo-key.pem ec2-user@$(terraform output -raw ec2_public_ip)
 
 The instance reads the root password from **Parameter Store** only **at first boot** (in user-data). If you change **`/mongodb/MONGO_INITDB_ROOT_PASSWORD`** in SSM later, the running MongoDB still has the old password until you update it.
 
-**Option A — From the pipeline (recommended):** Set `rotate_mongodb_password = true` in `cicd/terraform.tfvars` and apply the cicd stack. Then update `/mongotf/tfvar/mongodb_root_password` in Parameter Store and push; the pipeline will apply and run SSM Run Command on the instance to set the MongoDB password. See [CICD.md](CICD.md).
-
-**Option B — Manual (SSH):**
-
 1. **SSH in** (use the password that currently works):
    ```bash
    ssh -i mongo-key.pem ec2-user@$(terraform output -raw ec2_public_ip)
@@ -207,9 +203,7 @@ The instance reads the root password from **Parameter Store** only **at first bo
 
 | Document | Description |
 |----------|-------------|
-| [CICD.md](CICD.md) | CI/CD with CodePipeline and CodeBuild (automated apply on push) |
-| [CODECOMMIT.md](CODECOMMIT.md) | CodeCommit repo setup, **export AWS credentials before push**, and migration from GitHub |
-| [docs/IAM-MINIMAL-POLICIES.md](docs/IAM-MINIMAL-POLICIES.md) | Minimal IAM policies for Terraform and CodeCommit |
+| [docs/IAM-MINIMAL-POLICIES.md](docs/IAM-MINIMAL-POLICIES.md) | Minimal IAM policies for Terraform |
 
 ---
 
@@ -218,11 +212,8 @@ The instance reads the root password from **Parameter Store** only **at first bo
 | Output | Description |
 |--------|-------------|
 | `ec2_public_ip` | Elastic IP for MongoDB connection |
-| `ec2_instance_id` | EC2 instance ID (for SSM Run Command, e.g. password rotation) |
 | `mongodb_connection_string` | Connection string template (replace `<PASSWORD>`) |
 | `ssh_private_key_path` | Path to generated SSH key (`mongo-key.pem`) |
-| `codecommit_clone_url_https` | CodeCommit HTTPS clone URL (if repo created) |
-| `codecommit_clone_url_ssh` | CodeCommit SSH clone URL (if repo created) |
 
 ---
 
@@ -234,7 +225,7 @@ The instance reads the root password from **Parameter Store** only **at first bo
 | **MongoDB connection refused** | Ensure security group allows your IP on port 27017 (`mongodb_allowed_cidrs`). Wait a few minutes after apply for user-data to finish installing MongoDB. |
 | **SSH "Permission denied"** | Use `ssh -i mongo-key.pem ec2-user@...` and ensure `mongo-key.pem` has mode `600`. Confirm your IP is in `ssh_allowed_cidrs`. |
 | **Password not working** | If you changed the password in SSM, the running instance still has the old one until you apply it: SSH in and run `db.changeUserPassword()` (see [Changing the MongoDB password](#changing-the-mongodb-password)). |
-| **State / backend errors** | If using remote state, run `terraform init -reconfigure` with the correct backend config. See [CICD.md](CICD.md) for S3/DynamoDB backend. |
+| **State / backend errors** | If using remote state, run `terraform init -reconfigure` with the correct backend config. |
 
 ---
 

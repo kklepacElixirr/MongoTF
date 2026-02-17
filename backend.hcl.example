@@ -1,7 +1,0 @@
-# Copy to backend.hcl and customize
-# terraform init -backend-config=backend.hcl
-
-bucket         = "mongotf-terraform-state-ACCOUNT_ID"
-key            = "mongotf/terraform.tfstate"
-region         = "eu-central-1"
-dynamodb_table = "mongotf-terraform-locks"

@@ -33,7 +33,3 @@ ecs_task_memory    = "512"
 
 # Optional: SNS topic for EC2 health alarm notifications
 # ec2_health_alarm_sns_topic_arn = "arn:aws:sns:eu-central-1:123456789012:mongodb-alerts"
-
-# CodeCommit - repository for source control
-create_codecommit_repository = false
-codecommit_repository_name   = "mongotf"
