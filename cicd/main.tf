@@ -165,6 +165,11 @@ resource "aws_codebuild_project" "terraform" {
       name  = "TF_VAR_aws_region"
       value = local.region
     }
+    environment_variable {
+      name  = "TF_VAR_mongodb_root_password"
+      value = var.mongodb_password_parameter
+      type  = "PARAMETER_STORE"
+    }
   }
 
   source {

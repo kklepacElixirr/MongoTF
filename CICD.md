@@ -70,24 +70,29 @@ cd cicd && terraform apply
 
 **Warning**: Auto-apply will change infrastructure on every push. Use with care; prefer manual apply for production.
 
-## Step 4: Set Terraform variables in CodeBuild
+## Step 4: Set Terraform variables for CodeBuild
 
-Add these in **CodeBuild** → your project → **Edit** → **Environment** → **Additional configuration** → **Environment variables**:
-
-| Name | Value | Type |
-|------|-------|------|
-| `TF_VAR_aws_account_id` | (set by pipeline) | - |
-| `TF_VAR_mongodb_root_password` | Your MongoDB password | SECRETS_MANAGER or PARAMETER_STORE |
-| `TF_VAR_environment` | dev / staging / prod | Plaintext |
-
-For secrets, create an SSM parameter:
+The CodeBuild project is configured to read `TF_VAR_mongodb_root_password` from SSM Parameter Store. Create the parameter before the pipeline runs:
 
 ```bash
 aws ssm put-parameter --name /mongotf/tfvar/mongodb_root_password \
   --value "YourSecurePassword" --type SecureString
 ```
 
-Then in CodeBuild env: Name=`TF_VAR_mongodb_root_password`, Value=`/mongotf/tfvar/mongodb_root_password`, Type=`PARAMETER_STORE`
+If the parameter already exists, add `--overwrite` to update it:
+
+```bash
+aws ssm put-parameter --name /mongotf/tfvar/mongodb_root_password \
+  --value "YourNewPassword" --type SecureString --overwrite
+```
+
+The cicd Terraform wires this into CodeBuild: `TF_VAR_mongodb_root_password` → Value=`/mongotf/tfvar/mongodb_root_password`, Type=`PARAMETER_STORE`. To use a different path, set in `cicd/terraform.tfvars`:
+
+```hcl
+mongodb_password_parameter = "/mongotf/tfvar/mongodb_root_password"
+```
+
+Other variables (`TF_VAR_aws_account_id`, `TF_VAR_aws_region`) are set automatically. For `TF_VAR_environment`, add it in CodeBuild → Edit → Environment → Environment variables, or extend the cicd Terraform.
 
 ## Step 5: Trigger the pipeline
 

@@ -19,3 +19,9 @@ variable "approve_apply" {
   type        = bool
   default     = false
 }
+
+variable "mongodb_password_parameter" {
+  description = "SSM Parameter Store path for TF_VAR_mongodb_root_password (create with: aws ssm put-parameter --name /mongotf/tfvar/mongodb_root_password --value 'YourPassword' --type SecureString)"
+  type        = string
+  default     = "/mongotf/tfvar/mongodb_root_password"
+}
