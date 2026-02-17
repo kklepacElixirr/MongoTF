@@ -569,17 +569,21 @@ output "mongodb_connection_string" {
   value       = "mongodb://${var.mongodb_root_username}:<PASSWORD>@${aws_eip.mongo.public_ip}:27017"
 }
 
-# Write outputs to outputs/<env_prefix>_outputs.json (e.g. dev_outputs.json, stage_outputs.json, prod_outputs.json)
+# Write outputs to outputs/<env_prefix>_outputs.json on every apply (pretty-printed).
 locals {
-  outputs_json = jsonencode({
-    environment             = var.environment
-    ssh_private_key_path    = local_file.mongo_private_key.filename
-    ec2_public_ip           = aws_eip.mongo.public_ip
-    ec2_instance_id         = aws_instance.mongolab_ec2_instance.id
-    ebs_volume_id           = aws_ebs_volume.mongodb_data.id
-    ec2_ami_used            = aws_instance.mongolab_ec2_instance.ami
+  outputs_map = {
+    environment              = var.environment
+    ssh_private_key_path     = local_file.mongo_private_key.filename
+    ec2_public_ip            = aws_eip.mongo.public_ip
+    ec2_instance_id          = aws_instance.mongolab_ec2_instance.id
+    ebs_volume_id            = aws_ebs_volume.mongodb_data.id
+    ec2_ami_used             = aws_instance.mongolab_ec2_instance.ami
     mongodb_connection_string = "mongodb://${var.mongodb_root_username}:<PASSWORD>@${aws_eip.mongo.public_ip}:27017"
-  })
+  }
+  # Pretty-print: newlines and spaces for readability (flat object only).
+  _raw   = jsonencode(local.outputs_map)
+  _nl    = replace(replace(replace(local._raw, "{\"", "{\n  \""), ",\"", ",\n  \""), "\"}", "\"\n}")
+  outputs_json = replace(replace(local._nl, "\":\"", "\": \""), "\",\"", "\", \"")
 }
 
 resource "local_file" "outputs_json" {
