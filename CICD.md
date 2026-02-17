@@ -37,13 +37,29 @@ Pipeline flow: **Source (CodeCommit)** → **Build (CodeBuild:** init → valida
 
 ## Step 1: Bootstrap the CI/CD stack
 
-From the project root:
+**First run:** The `cicd` module uses an S3 backend, but the bucket is created by this same apply. So for the first run only, use local state:
+
+1. In `cicd/backend.tf`, **comment out** the `backend "s3" { ... }` block (leave the rest of the file).
+2. From the project root:
 
 ```bash
 cd cicd
 terraform init
 terraform apply
 ```
+
+3. **Migrate cicd state to S3** so the pipeline can later auto-apply cicd (optional but recommended). Uncomment the `backend "s3"` block in `cicd/backend.tf`, then:
+
+```bash
+cd cicd
+terraform init -migrate-state -reconfigure \
+  -backend-config="bucket=$(terraform output -raw terraform_state_bucket)" \
+  -backend-config="key=cicd/terraform.tfstate" \
+  -backend-config="dynamodb_table=$(terraform output -raw terraform_lock_table)" \
+  -backend-config="region=eu-central-1"
+```
+
+(Replace `eu-central-1` with your region.)
 
 This creates:
 
@@ -52,7 +68,7 @@ This creates:
 - **CodePipeline** (source: CodeCommit, build: CodeBuild)
 - **CodeBuild project** that runs `buildspec.yml` in the project root
 
-Review the plan and confirm. Note the outputs (e.g. state bucket name) for the next step.
+Note the outputs for the next step.
 
 ---
 
@@ -102,13 +118,15 @@ To enable **auto-apply** on each push, set in `cicd/terraform.tfvars` (or `cicd/
 approve_apply = true
 ```
 
-Then update the CICD stack:
+Then update the CICD stack (or let the pipeline do it; see below):
 
 ```bash
 cd cicd && terraform apply
 ```
 
 **Warning:** With `approve_apply = true`, every push to the tracked branch will run `terraform apply`. Use with care; for production, many teams keep this `false` and apply manually or via a separate approval step.
+
+**Auto-apply cicd from the pipeline:** If you migrated cicd state to S3 (Step 1), the pipeline will **apply the cicd stack** whenever you push changes under `cicd/` (e.g. `approve_apply`, pipeline config). So you can change `cicd/terraform.tfvars` or `cicd/main.tf`, push, and the pipeline will run `terraform apply` in `cicd/` first, then run the main Terraform. No need to run `cd cicd && terraform apply` manually for cicd-only changes.
 
 ---
 
@@ -202,3 +220,4 @@ terraform apply
 | **Build fails: "state locked"** | Another run or a local process holds the lock. Wait for the other run to finish, or in DynamoDB delete the lock item for the state key (use with care). |
 | **Apply runs but nothing changes** | Confirm `approve_apply = true` in `cicd` and that you re-applied the cicd stack. Check CodeBuild logs for "Apply skipped (APPROVE_APPLY != true)". |
 | **Wrong branch built** | In `cicd/main.tf`, the source stage specifies the branch; change it there and run `cd cicd && terraform apply`. |
+| **"CICD apply skipped" in logs** | The pipeline only applies the cicd stack when `cicd/*` changed and cicd state is in S3. Run the migrate step in [Step 1](#step-1-bootstrap-the-cicd-stack) (uncomment backend block, then `terraform init -migrate-state -reconfigure`). |

@@ -14,6 +14,7 @@ Terraform module that provisions **MongoDB 8.2** on a single EC2 instance with E
 - [Integration (Payload CMS / Hasura)](#integration-payload-cms--hasura)
 - [Redeploy and teardown](#redeploy-and-teardown)
 - [SSH access](#ssh-access)
+- [Changing the MongoDB password](#changing-the-mongodb-password)
 - [Security](#security)
 - [Related documentation](#related-documentation)
 - [Outputs](#outputs)
@@ -171,10 +172,32 @@ ssh -i mongo-key.pem ec2-user@$(terraform output -raw ec2_public_ip)
 
 ---
 
+## Changing the MongoDB password
+
+The instance reads the root password from **Parameter Store** only **at first boot** (in user-data). If you change **`/mongodb/MONGO_INITDB_ROOT_PASSWORD`** in SSM later, the running MongoDB still has the old password until you update it.
+
+**Apply the new password on the instance:**
+
+1. **SSH in** (use the password that currently works):
+   ```bash
+   ssh -i mongo-key.pem ec2-user@$(terraform output -raw ec2_public_ip)
+   ```
+
+2. **Connect and set the new password** (replace `CURRENT_PASSWORD` and `NEW_PASSWORD`; use the value you set in Parameter Store for `NEW_PASSWORD`):
+   ```bash
+   mongosh "mongodb://mongolabadmin:CURRENT_PASSWORD@localhost:27017/admin" --eval "
+     db.changeUserPassword('mongolabadmin', 'NEW_PASSWORD');
+   "
+   ```
+
+3. From then on, use the new password. New instances will pick up the new value from SSM at boot.
+
+---
+
 ## Security
 
 - **Restrict access:** Set `ssh_allowed_cidrs` and `mongodb_allowed_cidrs` to your IP (e.g. `["1.2.3.4/32"]`) in `terraform.tfvars` for production.
-- **Change password after first apply:** Update the SSM parameter **`/mongodb/MONGO_INITDB_ROOT_PASSWORD`** in AWS Console (Systems Manager → Parameter Store). Terraform ignores changes to the parameter value, so your new password persists across applies.
+- **Change password after first apply:** Update the SSM parameter **`/mongodb/MONGO_INITDB_ROOT_PASSWORD`** in AWS Console (Systems Manager → Parameter Store). Terraform ignores changes to the parameter value. **The instance only reads this at first boot**—so after you change SSM, you must apply the new password on the running MongoDB (see [Changing the MongoDB password](#changing-the-mongodb-password)).
 
 ---
 
@@ -207,7 +230,7 @@ ssh -i mongo-key.pem ec2-user@$(terraform output -raw ec2_public_ip)
 | **`aws_account_id must be exactly 12 digits`** | Set `aws_account_id` in `terraform.tfvars` to your 12-digit account ID. Get it: `aws sts get-caller-identity --query Account --output text`. |
 | **MongoDB connection refused** | Ensure security group allows your IP on port 27017 (`mongodb_allowed_cidrs`). Wait a few minutes after apply for user-data to finish installing MongoDB. |
 | **SSH "Permission denied"** | Use `ssh -i mongo-key.pem ec2-user@...` and ensure `mongo-key.pem` has mode `600`. Confirm your IP is in `ssh_allowed_cidrs`. |
-| **Password not working** | If you changed the password in SSM, use the new one. Terraform only sets the initial value; runtime uses SSM. |
+| **Password not working** | If you changed the password in SSM, the running instance still has the old one until you apply it: SSH in and run `db.changeUserPassword()` (see [Changing the MongoDB password](#changing-the-mongodb-password)). |
 | **State / backend errors** | If using remote state, run `terraform init -reconfigure` with the correct backend config. See [CICD.md](CICD.md) for S3/DynamoDB backend. |
 
 ---

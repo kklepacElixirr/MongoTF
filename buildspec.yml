@@ -8,7 +8,8 @@
 #   TF_VAR_aws_account_id
 #   TF_VAR_mongodb_root_password (or from SSM)
 #
-# Optional: APPROVE_APPLY=true for auto-apply, false to only plan
+# Optional: APPROVE_APPLY=true for auto-apply (main), false to only plan
+# When cicd/* changes and cicd state is in S3, cicd stack is applied first (pipeline/CodeBuild updates).
 
 version: 0.2
 
@@ -17,6 +18,19 @@ phases:
     commands:
       - echo "Terraform version"
       - terraform version
+      # If cicd/ changed, apply cicd first (pipeline/CodeBuild); requires cicd state migrated to S3 (see CICD.md)
+      - |
+        if git diff --name-only HEAD~1 HEAD 2>/dev/null | grep -q '^cicd/'; then
+          echo "cicd/ changed — applying cicd stack first..."
+          (cd cicd && terraform init -input=false \
+            -backend-config="bucket=${TF_STATE_BUCKET}" \
+            -backend-config="key=cicd/terraform.tfstate" \
+            -backend-config="dynamodb_table=${TF_STATE_LOCK_TABLE}" \
+            -backend-config="region=${AWS_REGION}" && \
+            terraform apply -input=false -auto-approve) || echo "CICD apply skipped (e.g. cicd state not in S3 yet)."
+        else
+          echo "No cicd/ changes — skipping cicd apply."
+        fi
       - echo "Initializing Terraform with S3 backend..."
       - |
         terraform init \
