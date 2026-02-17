@@ -48,18 +48,19 @@ terraform init
 terraform apply
 ```
 
-3. **Migrate cicd state to S3** so the pipeline can later auto-apply cicd (optional but recommended). Uncomment the `backend "s3"` block in `cicd/backend.tf`, then:
+3. **Migrate cicd state to S3** so the pipeline can later auto-apply cicd (optional but recommended). Uncomment the `backend "s3"` block in `cicd/backend.tf`, then run init with the backend config. Use the same naming as the cicd module (so you don't need `terraform output`, which would require the backend to be already initialized):
 
 ```bash
 cd cicd
-terraform init -migrate-state -reconfigure \
-  -backend-config="bucket=$(terraform output -raw terraform_state_bucket)" \
+# Default project_name is "mongotf"; replace if you changed it in cicd/terraform.tfvars
+terraform init -migrate-state \
+  -backend-config="bucket=mongotf-terraform-state-$(aws sts get-caller-identity --query Account --output text)" \
   -backend-config="key=cicd/terraform.tfstate" \
-  -backend-config="dynamodb_table=$(terraform output -raw terraform_lock_table)" \
+  -backend-config="dynamodb_table=mongotf-terraform-locks" \
   -backend-config="region=eu-central-1"
 ```
 
-(Replace `eu-central-1` with your region.)
+(Replace `eu-central-1` with your region, and `mongotf` with `var.project_name` if you set a different one in `cicd/terraform.tfvars`.)
 
 This creates:
 
@@ -162,6 +163,14 @@ mongodb_password_parameter = "/your/custom/path"
 
 **Other variables:** `TF_VAR_aws_account_id` and `TF_VAR_aws_region` are set automatically by the CICD module. To set `TF_VAR_environment`, add it in CodeBuild → Edit → Environment → Environment variables, or extend the `cicd` Terraform to pass it through.
 
+**Rotate MongoDB password on the instance from the pipeline:** The instance only reads the password from SSM at first boot. To update the running MongoDB password when you change `/mongotf/tfvar/mongodb_root_password`, set in `cicd/terraform.tfvars`:
+
+```hcl
+rotate_mongodb_password = true
+```
+
+Then run `cd cicd && terraform apply` (or push a change so the pipeline applies it). After each successful Terraform apply, the pipeline will run an **SSM Run Command** on the EC2 instance that: reads the new password from Parameter Store, connects to MongoDB with the current password, runs `changeUserPassword`, and updates the SSM parameter `/mongodb/MONGO_INITDB_ROOT_PASSWORD`. So the instance and SSM stay in sync. Requires the EC2 instance to be **SSM-managed** (the Terraform adds `AmazonSSMManagedInstanceCore` to the instance role).
+
 ---
 
 ## Step 5: Trigger the pipeline
@@ -221,3 +230,4 @@ terraform apply
 | **Apply runs but nothing changes** | Confirm `approve_apply = true` in `cicd` and that you re-applied the cicd stack. Check CodeBuild logs for "Apply skipped (APPROVE_APPLY != true)". |
 | **Wrong branch built** | In `cicd/main.tf`, the source stage specifies the branch; change it there and run `cd cicd && terraform apply`. |
 | **"CICD apply skipped" in logs** | The pipeline only applies the cicd stack when `cicd/*` changed and cicd state is in S3. Run the migrate step in [Step 1](#step-1-bootstrap-the-cicd-stack) (uncomment backend block, then `terraform init -migrate-state -reconfigure`). |
+| **MongoDB password rotation fails (SSM)** | Ensure the EC2 instance is SSM-managed (instance has `AmazonSSMManagedInstanceCore`; check SSM → Fleet Manager). Allow a few minutes after instance launch for the agent to register. If the SSM command times out, check the instance’s SSM agent logs and that the security group allows outbound HTTPS. |

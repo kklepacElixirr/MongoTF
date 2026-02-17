@@ -3,3 +3,6 @@ codecommit_repository_name = "MongoTF"
 
 # Optional: enable auto-apply on push
 # approve_apply = true
+
+# Optional: after apply, run SSM Run Command on EC2 to set MongoDB password to the value in Parameter Store
+# rotate_mongodb_password = true

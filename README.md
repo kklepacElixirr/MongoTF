@@ -176,7 +176,9 @@ ssh -i mongo-key.pem ec2-user@$(terraform output -raw ec2_public_ip)
 
 The instance reads the root password from **Parameter Store** only **at first boot** (in user-data). If you change **`/mongodb/MONGO_INITDB_ROOT_PASSWORD`** in SSM later, the running MongoDB still has the old password until you update it.
 
-**Apply the new password on the instance:**
+**Option A — From the pipeline (recommended):** Set `rotate_mongodb_password = true` in `cicd/terraform.tfvars` and apply the cicd stack. Then update `/mongotf/tfvar/mongodb_root_password` in Parameter Store and push; the pipeline will apply and run SSM Run Command on the instance to set the MongoDB password. See [CICD.md](CICD.md).
+
+**Option B — Manual (SSH):**
 
 1. **SSH in** (use the password that currently works):
    ```bash
@@ -216,6 +218,7 @@ The instance reads the root password from **Parameter Store** only **at first bo
 | Output | Description |
 |--------|-------------|
 | `ec2_public_ip` | Elastic IP for MongoDB connection |
+| `ec2_instance_id` | EC2 instance ID (for SSM Run Command, e.g. password rotation) |
 | `mongodb_connection_string` | Connection string template (replace `<PASSWORD>`) |
 | `ssh_private_key_path` | Path to generated SSH key (`mongo-key.pem`) |
 | `codecommit_clone_url_https` | CodeCommit HTTPS clone URL (if repo created) |

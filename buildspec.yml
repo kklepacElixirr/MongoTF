@@ -9,6 +9,7 @@
 #   TF_VAR_mongodb_root_password (or from SSM)
 #
 # Optional: APPROVE_APPLY=true for auto-apply (main), false to only plan
+# Optional: ROTATE_MONGODB_PASSWORD=true to run SSM Run Command on EC2 and set MongoDB password to the value in Parameter Store (see CICD.md)
 # When cicd/* changes and cicd state is in S3, cicd stack is applied first (pipeline/CodeBuild updates).
 
 version: 0.2
@@ -50,6 +51,25 @@ phases:
           terraform apply -input=false tfplan
         else
           echo "Apply skipped (APPROVE_APPLY != true). Plan saved."
+        fi
+      - |
+        if [ "$APPROVE_APPLY" = "true" ] && [ "$ROTATE_MONGODB_PASSWORD" = "true" ]; then
+          echo "ROTATE_MONGODB_PASSWORD enabled — syncing MongoDB password on instance via SSM..."
+          aws ssm put-parameter --name /mongodb/MONGO_INITDB_ROOT_PASSWORD_NEW --value "$TF_VAR_mongodb_root_password" --type SecureString --overwrite --region "$AWS_REGION"
+          INSTANCE_ID=$(terraform output -raw ec2_instance_id)
+          SCRIPT_JSON=$(python3 -c "import json; print(json.dumps(open('scripts/rotate-mongodb-password.sh').read()))")
+          echo "{\"commands\":[$SCRIPT_JSON]}" > /tmp/ssm-params.json
+          CMD_ID=$(aws ssm send-command --instance-ids "$INSTANCE_ID" --document-name "AWS-RunShellScript" --parameters file:///tmp/ssm-params.json --region "$AWS_REGION" --query Command.CommandId --output text)
+          echo "Waiting for SSM command $CMD_ID..."
+          for i in $(seq 1 30); do
+            STATUS=$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --region "$AWS_REGION" --query Status --output text 2>/dev/null || echo "Pending")
+            [ "$STATUS" = "Success" ] && break
+            [ "$STATUS" = "Failed" ] && { aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --region "$AWS_REGION"; exit 1; }
+            sleep 5
+          done
+          [ "$STATUS" != "Success" ] && { echo "SSM command timed out"; exit 1; }
+          aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" --region "$AWS_REGION" --query [Status,StandardOutputContent] --output text
+          echo "MongoDB password rotation completed."
         fi
 artifacts:
   files:

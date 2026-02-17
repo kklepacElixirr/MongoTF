@@ -25,3 +25,9 @@ variable "mongodb_password_parameter" {
   type        = string
   default     = "/mongotf/tfvar/mongodb_root_password"
 }
+
+variable "rotate_mongodb_password" {
+  description = "If true, after Terraform apply the pipeline runs SSM Run Command on the EC2 instance to set the MongoDB root password to the value in mongodb_password_parameter (so instance and SSM stay in sync)."
+  type        = bool
+  default     = false
+}

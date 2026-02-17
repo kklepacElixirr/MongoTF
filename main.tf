@@ -135,8 +135,14 @@ resource "aws_iam_role_policy" "ec2_ssm_access" {
         ]
         Resource = [
           aws_ssm_parameter.mongodb_secret_password.arn,
-          aws_ssm_parameter.mongodb_root_username.arn
+          aws_ssm_parameter.mongodb_root_username.arn,
+          "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/mongodb/MONGO_INITDB_ROOT_PASSWORD_NEW"
         ]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["ssm:PutParameter", "ssm:DeleteParameter"]
+        Resource = [aws_ssm_parameter.mongodb_secret_password.arn, "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/mongodb/MONGO_INITDB_ROOT_PASSWORD_NEW"]
       },
       {
         Effect = "Allow"
@@ -145,6 +151,12 @@ resource "aws_iam_role_policy" "ec2_ssm_access" {
       }
     ]
   })
+}
+
+# So the instance can receive SSM Run Command (e.g. password rotation from pipeline)
+resource "aws_iam_role_policy_attachment" "ec2_ssm_managed" {
+  role       = aws_iam_role.ec2_mongo_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
 resource "aws_iam_instance_profile" "ec2_mongo" {
@@ -535,6 +547,11 @@ output "ssh_private_key_path" {
 output "ec2_public_ip" {
   description = "Static public IP of the MongoDB EC2 instance (Elastic IP)"
   value       = aws_eip.mongo.public_ip
+}
+
+output "ec2_instance_id" {
+  description = "EC2 instance ID (for SSM Run Command, e.g. password rotation from CI/CD)"
+  value       = aws_instance.mongolab_ec2_instance.id
 }
 
 output "ec2_ami_used" {

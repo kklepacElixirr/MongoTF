@@ -170,6 +170,10 @@ resource "aws_codebuild_project" "terraform" {
       value = var.mongodb_password_parameter
       type  = "PARAMETER_STORE"
     }
+    environment_variable {
+      name  = "ROTATE_MONGODB_PASSWORD"
+      value = var.rotate_mongodb_password ? "true" : "false"
+    }
   }
 
   source {
