@@ -1,18 +1,43 @@
 # Terraform CI/CD with CodePipeline
 
-Automated Terraform apply via AWS CodePipeline and CodeBuild. Triggers on push to CodeCommit.
+Automated Terraform **plan** and optional **apply** via AWS CodePipeline and CodeBuild. The pipeline is triggered on push to the configured CodeCommit branch (e.g. `main`).
+
+---
+
+## Table of contents
+
+- [Overview](#overview)
+- [Prerequisites](#prerequisites)
+- [Step 1: Bootstrap the CI/CD stack](#step-1-bootstrap-the-cicd-stack)
+- [Step 2: Migrate main project to S3 backend](#step-2-migrate-main-project-to-s3-backend)
+- [Step 3: Configure auto-apply (optional)](#step-3-configure-auto-apply-optional)
+- [Step 4: Set Terraform variables for CodeBuild](#step-4-set-terraform-variables-for-codebuild)
+- [Step 5: Trigger the pipeline](#step-5-trigger-the-pipeline)
+- [Branches and manual apply](#branches-and-manual-apply)
+- [File layout](#file-layout)
+- [Troubleshooting](#troubleshooting)
+
+---
 
 ## Overview
 
-1. **Bootstrap** (run once): Creates S3 state bucket, DynamoDB lock table, CodePipeline, CodeBuild
-2. **Main project**: Uses S3 backend, applied by the pipeline (or locally)
+1. **Bootstrap (run once):** The `cicd` Terraform creates the S3 state bucket, DynamoDB lock table, CodePipeline, and CodeBuild project.
+2. **Main project:** Uses the S3 backend; every pipeline run runs `terraform init`, `terraform plan`, and optionally `terraform apply` from the root using `buildspec.yml`.
+
+Pipeline flow: **Source (CodeCommit)** → **Build (CodeBuild:** init → validate → plan → apply if enabled).
+
+---
 
 ## Prerequisites
 
-- CodeCommit repo `MongoTF` with your Terraform code
-- Terraform applied locally at least once (or pipeline will create everything)
+- A **CodeCommit** repository named `MongoTF` (or match your repo name). See [CODECOMMIT.md](CODECOMMIT.md) for creating the repo and pushing code.
+- **CICD repo name:** The `cicd` module’s `codecommit_repository_name` must match the CodeCommit repo name exactly (case-sensitive). For this project use `codecommit_repository_name = "MongoTF"` in `cicd/terraform.tfvars`.
 
-## Step 1: Bootstrap the CI/CD
+---
+
+## Step 1: Bootstrap the CI/CD stack
+
+From the project root:
 
 ```bash
 cd cicd
@@ -22,17 +47,25 @@ terraform apply
 
 This creates:
 
-- S3 bucket for Terraform state
-- DynamoDB table for state locking
-- CodePipeline (source: CodeCommit, build: CodeBuild)
-- CodeBuild project running `buildspec.yml`
+- **S3 bucket** for Terraform state
+- **DynamoDB table** for state locking
+- **CodePipeline** (source: CodeCommit, build: CodeBuild)
+- **CodeBuild project** that runs `buildspec.yml` in the project root
+
+Review the plan and confirm. Note the outputs (e.g. state bucket name) for the next step.
+
+---
 
 ## Step 2: Migrate main project to S3 backend
 
-After bootstrap, initialize the main Terraform with the S3 backend. **Region is required**:
+After bootstrap, point the **main** Terraform at the S3 backend. From the **project root** (not `cicd`):
+
+**Option A — Using outputs (recommended)**
+
+Replace `eu-central-1` with your region if different:
 
 ```bash
-cd ..   # back to project root
+cd ..   # project root
 terraform init -reconfigure \
   -backend-config="bucket=$(cd cicd && terraform output -raw terraform_state_bucket)" \
   -backend-config="key=$(cd cicd && terraform output -raw terraform_state_key)" \
@@ -40,63 +73,82 @@ terraform init -reconfigure \
   -backend-config="region=eu-central-1"
 ```
 
-**Or** use a config file (copy `backend.hcl.example` to `backend.hcl`, edit values, then):
+**Option B — Using a config file**
+
+Copy the example and edit values (bucket, key, region, dynamodb_table):
 
 ```bash
+cp backend.hcl.example backend.hcl
+# Edit backend.hcl with your bucket, key, region, dynamodb_table
 terraform init -reconfigure -backend-config=backend.hcl
 ```
 
-If you have existing state locally and want to migrate (not overwrite):
+**If you have existing local state and want to migrate (not overwrite):**
 
 ```bash
-terraform init -migrate-state  # add -backend-config as above when prompted
+terraform init -migrate-state
+# When prompted, add the same -backend-config=... options as above
 ```
+
+---
 
 ## Step 3: Configure auto-apply (optional)
 
-By default, the pipeline only runs `terraform plan`. To enable auto-apply:
+By default, the pipeline only runs **plan** and saves the plan artifact; it does **not** apply.
 
-In `cicd/variables.tf` or `cicd/terraform.tfvars`:
+To enable **auto-apply** on each push, set in `cicd/terraform.tfvars` (or `cicd/variables.tf` defaults):
 
 ```hcl
 approve_apply = true
 ```
 
-Then:
+Then update the CICD stack:
 
 ```bash
 cd cicd && terraform apply
 ```
 
-**Warning**: Auto-apply will change infrastructure on every push. Use with care; prefer manual apply for production.
+**Warning:** With `approve_apply = true`, every push to the tracked branch will run `terraform apply`. Use with care; for production, many teams keep this `false` and apply manually or via a separate approval step.
+
+---
 
 ## Step 4: Set Terraform variables for CodeBuild
 
-The CodeBuild project is configured to read `TF_VAR_mongodb_root_password` from SSM Parameter Store. Create the parameter before the pipeline runs:
+CodeBuild needs at least **`TF_VAR_mongodb_root_password`** so the main Terraform can create/update the SSM parameter used by MongoDB. This is provided via **AWS Systems Manager Parameter Store**.
+
+**Create the parameter** (run once; use a strong password):
 
 ```bash
 aws ssm put-parameter --name /mongotf/tfvar/mongodb_root_password \
   --value "YourSecurePassword" --type SecureString
 ```
 
-If the parameter already exists, add `--overwrite` to update it:
+**If the parameter already exists**, update it with:
 
 ```bash
 aws ssm put-parameter --name /mongotf/tfvar/mongodb_root_password \
   --value "YourNewPassword" --type SecureString --overwrite
 ```
 
-The cicd Terraform wires this into CodeBuild: `TF_VAR_mongodb_root_password` → Value=`/mongotf/tfvar/mongodb_root_password`, Type=`PARAMETER_STORE`. To use a different path, set in `cicd/terraform.tfvars`:
+**How it’s used:** The CICD Terraform configures CodeBuild so that `TF_VAR_mongodb_root_password` is read from Parameter Store at build time. The mapping is:
+
+- **CodeBuild env var:** `TF_VAR_mongodb_root_password`
+- **Value:** `/mongotf/tfvar/mongodb_root_password`
+- **Type:** `PARAMETER_STORE`
+
+To use a **different SSM path**, set in `cicd/terraform.tfvars`:
 
 ```hcl
-mongodb_password_parameter = "/mongotf/tfvar/mongodb_root_password"
+mongodb_password_parameter = "/your/custom/path"
 ```
 
-Other variables (`TF_VAR_aws_account_id`, `TF_VAR_aws_region`) are set automatically. For `TF_VAR_environment`, add it in CodeBuild → Edit → Environment → Environment variables, or extend the cicd Terraform.
+**Other variables:** `TF_VAR_aws_account_id` and `TF_VAR_aws_region` are set automatically by the CICD module. To set `TF_VAR_environment`, add it in CodeBuild → Edit → Environment → Environment variables, or extend the `cicd` Terraform to pass it through.
+
+---
 
 ## Step 5: Trigger the pipeline
 
-Push to `main`:
+Push to the branch the pipeline watches (e.g. `main`):
 
 ```bash
 git add .
@@ -104,33 +156,48 @@ git commit -m "Terraform changes"
 git push codecommit main
 ```
 
-Pipeline runs: Source (CodeCommit) → Build (Terraform init, plan, apply)
+The pipeline runs: **Source (CodeCommit)** → **Build (Terraform init, validate, plan, apply if enabled).**
 
-The pipeline triggers automatically on push to `main` via EventBridge. If it does not trigger, run `cd cicd && terraform apply` to ensure the EventBridge rule is created.
+Pipeline triggers are set up via EventBridge (or equivalent) on push. If the pipeline does not trigger after a push, run `cd cicd && terraform apply` to ensure the EventBridge rule and pipeline are up to date.
 
-## Branches
+---
 
-The pipeline watches `main` by default. To add staging/development, edit `cicd/main.tf` and add more source actions or pipelines per branch.
+## Branches and manual apply
 
-## Manual apply from local
-
-You can still apply locally (with backend configured):
+- The pipeline watches **one branch** by default (e.g. `main`). To add staging or development, edit `cicd/main.tf` and add more source actions or pipelines per branch.
+- You can still run Terraform **locally** (with the same S3 backend):
 
 ```bash
 terraform plan
 terraform apply
 ```
 
+---
+
 ## File layout
 
 ```
 .
-├── buildspec.yml          # CodeBuild steps (init, plan, apply)
+├── buildspec.yml          # CodeBuild steps: init, validate, plan, (apply)
 ├── main.tf, variables.tf  # Main Terraform (MongoDB infra)
+├── backend.hcl.example    # Example backend config (copy to backend.hcl)
 ├── cicd/
-│   ├── main.tf            # Pipeline, CodeBuild, S3, DynamoDB
+│   ├── main.tf            # Pipeline, CodeBuild, S3, DynamoDB, EventBridge
 │   ├── variables.tf
 │   ├── outputs.tf
 │   └── backend.tf
 └── CICD.md                # This file
 ```
+
+---
+
+## Troubleshooting
+
+| Issue | What to check / do |
+|-------|--------------------|
+| **Pipeline not triggering on push** | Ensure EventBridge rule exists: `cd cicd && terraform apply`. Confirm `codecommit_repository_name` in `cicd` matches the CodeCommit repo name exactly (case-sensitive). |
+| **Build fails: "parameter not found"** | Create the SSM parameter: `aws ssm put-parameter --name /mongotf/tfvar/mongodb_root_password --value 'YourPassword' --type SecureString`. Ensure CodeBuild role has `ssm:GetParameter` (and `kms:Decrypt` if SecureString) on that parameter. |
+| **Build fails: "bucket does not exist" or "dynamodb table not found"** | Bootstrap first: `cd cicd && terraform apply`. Then run `terraform init -reconfigure` in the project root with the correct backend config. |
+| **Build fails: "state locked"** | Another run or a local process holds the lock. Wait for the other run to finish, or in DynamoDB delete the lock item for the state key (use with care). |
+| **Apply runs but nothing changes** | Confirm `approve_apply = true` in `cicd` and that you re-applied the cicd stack. Check CodeBuild logs for "Apply skipped (APPROVE_APPLY != true)". |
+| **Wrong branch built** | In `cicd/main.tf`, the source stage specifies the branch; change it there and run `cd cicd && terraform apply`. |
