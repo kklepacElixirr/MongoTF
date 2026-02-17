@@ -255,6 +255,7 @@ The script: (1) reads the current password from SSM, (2) prompts for or uses `MO
 | [docs/APPLY-INFRA.md](docs/APPLY-INFRA.md) | Apply only: run Terraform apply after code changes (no new instance, no password change) |
 | [docs/ROTATE-PASSWORD.md](docs/ROTATE-PASSWORD.md) | Rotate MongoDB password: script and manual, examples, troubleshooting |
 | [docs/IAM-MINIMAL-POLICIES.md](docs/IAM-MINIMAL-POLICIES.md) | Minimal IAM policies for Terraform |
+| [backup/README.md](backup/README.md) | AWS Backup: separate Terraform in `backup/` to back up the EC2 instance and EBS |
 
 ---
 
@@ -263,6 +264,8 @@ The script: (1) reads the current password from SSM, (2) prompts for or uses `MO
 | Output | Description |
 |--------|-------------|
 | `ec2_public_ip` | Elastic IP for MongoDB connection |
+| `ec2_instance_id` | EC2 instance ID (for AWS Backup or other automation) |
+| `ebs_volume_id` | MongoDB data EBS volume ID (attached to the instance) |
 | `mongodb_connection_string` | Connection string template (replace `<PASSWORD>`) |
 | `ssh_private_key_path` | Path to generated SSH key (e.g. `dev_mongo-key.pem`, `stage_mongo-key.pem`, `prod_mongo-key.pem`) |
 | `outputs_file` | Path to `outputs/<env>_outputs.json` (e.g. `outputs/dev_outputs.json`, `outputs/stage_outputs.json`, `outputs/prod_outputs.json`) with all outputs as JSON |

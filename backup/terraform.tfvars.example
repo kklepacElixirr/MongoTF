@@ -1,0 +1,15 @@
+# Copy to terraform.tfvars and set values.
+# Get ec2_instance_id and ebs_volume_id from the main MongoTF stack (after apply):
+#   cd .. && terraform output -raw ec2_instance_id
+#   cd .. && terraform output -raw ebs_volume_id
+
+aws_region       = "eu-central-1"
+ec2_instance_id  = "i-xxxxxxxxxxxxxxxxx"
+# Optional: add data volume explicitly (instance backup already includes attached EBS)
+# ebs_volume_ids  = ["vol-xxxxxxxxxxxxxxxxx"]
+
+# Optional overrides
+# backup_vault_name   = "mongolab-backup-vault"
+# backup_plan_name   = "mongolab-daily-backup"
+# schedule_cron      = "cron(0 5 * * ? *)"   # daily 05:00 UTC
+# retention_days      = 14

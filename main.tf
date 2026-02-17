@@ -549,6 +549,16 @@ output "ec2_public_ip" {
   value       = aws_eip.mongo.public_ip
 }
 
+output "ec2_instance_id" {
+  description = "EC2 instance ID (use for AWS Backup or other automation)"
+  value       = aws_instance.mongolab_ec2_instance.id
+}
+
+output "ebs_volume_id" {
+  description = "MongoDB data EBS volume ID (attached to the EC2 instance)"
+  value       = aws_ebs_volume.mongodb_data.id
+}
+
 output "ec2_ami_used" {
   description = "AMI ID used for the EC2 instance"
   value       = aws_instance.mongolab_ec2_instance.ami
@@ -562,10 +572,12 @@ output "mongodb_connection_string" {
 # Write outputs to outputs/<env_prefix>_outputs.json (e.g. dev_outputs.json, stage_outputs.json, prod_outputs.json)
 locals {
   outputs_json = jsonencode({
-    environment       = var.environment
-    ssh_private_key_path = local_file.mongo_private_key.filename
-    ec2_public_ip     = aws_eip.mongo.public_ip
-    ec2_ami_used      = aws_instance.mongolab_ec2_instance.ami
+    environment             = var.environment
+    ssh_private_key_path    = local_file.mongo_private_key.filename
+    ec2_public_ip           = aws_eip.mongo.public_ip
+    ec2_instance_id         = aws_instance.mongolab_ec2_instance.id
+    ebs_volume_id           = aws_ebs_volume.mongodb_data.id
+    ec2_ami_used            = aws_instance.mongolab_ec2_instance.ami
     mongodb_connection_string = "mongodb://${var.mongodb_root_username}:<PASSWORD>@${aws_eip.mongo.public_ip}:27017"
   })
 }
