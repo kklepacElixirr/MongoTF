@@ -91,6 +91,10 @@ An optional CodeCommit repository is created by default. See [CODECOMMIT.md](COD
 
 Terraform can be applied automatically via CodePipeline + CodeBuild. See [CICD.md](CICD.md) for setup.
 
+## IAM (Minimal Policies)
+
+For the minimum IAM permissions needed to run Terraform and use CodeCommit, see [docs/IAM-MINIMAL-POLICIES.md](docs/IAM-MINIMAL-POLICIES.md).
+
 ## Outputs
 
 | Output | Description |

@@ -29,7 +29,7 @@ This creates:
 
 ## Step 2: Migrate main project to S3 backend
 
-After bootstrap, initialize the main Terraform with the S3 backend:
+After bootstrap, initialize the main Terraform with the S3 backend. **Region is required**:
 
 ```bash
 cd ..   # back to project root
@@ -38,6 +38,12 @@ terraform init -reconfigure \
   -backend-config="key=$(cd cicd && terraform output -raw terraform_state_key)" \
   -backend-config="dynamodb_table=$(cd cicd && terraform output -raw terraform_lock_table)" \
   -backend-config="region=eu-central-1"
+```
+
+**Or** use a config file (copy `backend.hcl.example` to `backend.hcl`, edit values, then):
+
+```bash
+terraform init -reconfigure -backend-config=backend.hcl
 ```
 
 If you have existing state locally and want to migrate (not overwrite):
