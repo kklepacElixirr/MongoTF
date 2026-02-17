@@ -203,7 +203,8 @@ data "aws_iam_policy_document" "codepipeline" {
     effect = "Allow"
     actions = [
       "codecommit:GetBranch", "codecommit:GetCommit", "codecommit:GetRepository",
-      "codecommit:ListBranches", "codecommit:ListRepositories"
+      "codecommit:ListBranches", "codecommit:ListRepositories",
+      "codecommit:UploadArchive", "codecommit:GetUploadArchiveStatus"
     ]
     resources = ["*"]
   }
