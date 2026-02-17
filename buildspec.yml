@@ -1,0 +1,46 @@
+# CodeBuild buildspec for Terraform apply
+# Triggered by CodePipeline on CodeCommit push
+#
+# Required CodeBuild env vars (or set in Pipeline):
+#   TF_STATE_BUCKET      - S3 bucket for Terraform state
+#   TF_STATE_KEY         - State file key (e.g. mongotf/terraform.tfstate)
+#   TF_STATE_LOCK_TABLE  - DynamoDB table for state locking
+#   TF_VAR_aws_account_id
+#   TF_VAR_mongodb_root_password (or from SSM)
+#
+# Optional: APPROVE_APPLY=true for auto-apply, false to only plan
+
+version: 0.2
+
+phases:
+  pre_build:
+    commands:
+      - echo "Terraform version"
+      - terraform version
+      - echo "Initializing Terraform with S3 backend..."
+      - |
+        terraform init \
+          -backend-config="bucket=${TF_STATE_BUCKET}" \
+          -backend-config="key=${TF_STATE_KEY}" \
+          -backend-config="dynamodb_table=${TF_STATE_LOCK_TABLE}" \
+          -backend-config="region=${AWS_REGION}"
+  build:
+    commands:
+      - echo "Running terraform validate..."
+      - terraform validate
+      - echo "Running terraform plan..."
+      - terraform plan -out=tfplan -input=false
+      - |
+        if [ "$APPROVE_APPLY" = "true" ]; then
+          echo "Auto-approve enabled. Applying changes..."
+          terraform apply -input=false tfplan
+        else
+          echo "Apply skipped (APPROVE_APPLY != true). Plan saved."
+        fi
+artifacts:
+  files:
+    - tfplan
+  name: terraform-plan
+cache:
+  paths:
+    - .terraform/**/*

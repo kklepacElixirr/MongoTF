@@ -1,3 +1,14 @@
+variable "aws_account_id" {
+  description = "AWS account ID - must match the account your credentials resolve to (validated before apply)"
+
+  type = string
+
+  validation {
+    condition     = can(regex("^[0-9]{12}$", var.aws_account_id))
+    error_message = "aws_account_id must be exactly 12 digits."
+  }
+}
+
 variable "aws_region" {
   description = "AWS region"
   type        = string
@@ -93,4 +104,16 @@ variable "ec2_mongodb_volume_size" {
   description = "EBS volume size in GB for MongoDB data (persists across instance replacement)"
   type        = number
   default     = 20
+}
+
+variable "create_codecommit_repository" {
+  description = "Create an AWS CodeCommit repository for this project"
+  type        = bool
+  default     = true
+}
+
+variable "codecommit_repository_name" {
+  description = "Name of the CodeCommit repository"
+  type        = string
+  default     = "mongotf"
 }

@@ -1,4 +1,7 @@
 terraform {
+  # Backend configured via -backend-config in CI (see buildspec.yml)
+  # For local use: terraform init (without backend) or add -backend-config
+  backend "s3" {}
 
   required_providers {
     aws = {
@@ -15,11 +18,20 @@ terraform {
     }
   }
 
-  required_version = ">= 1.14.5"
+  required_version = ">= 1.5.0"
 }
 
 provider "aws" {
   region = var.aws_region
+}
+
+data "aws_caller_identity" "current" {}
+
+check "aws_account_match" {
+  assert {
+    condition     = data.aws_caller_identity.current.account_id == var.aws_account_id
+    error_message = "AWS account ID mismatch: terraform.tfvars has aws_account_id = \"${var.aws_account_id}\" but current credentials resolve to account \"${data.aws_caller_identity.current.account_id}\"."
+  }
 }
 
 data "aws_availability_zones" "available" {}
@@ -535,4 +547,12 @@ output "mongodb_connection_string" {
   value       = "mongodb://${var.mongodb_root_username}:<PASSWORD>@${aws_eip.mongo.public_ip}:27017"
 }
 
+output "codecommit_clone_url_https" {
+  description = "CodeCommit HTTPS clone URL (use with git-remote-codecommit)"
+  value       = var.create_codecommit_repository ? aws_codecommit_repository.mongotf[0].clone_url_http : null
+}
 
+output "codecommit_clone_url_ssh" {
+  description = "CodeCommit SSH clone URL"
+  value       = var.create_codecommit_repository ? aws_codecommit_repository.mongotf[0].clone_url_ssh : null
+}

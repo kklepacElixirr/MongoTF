@@ -1,6 +1,9 @@
 # Copy to terraform.tfvars and customize
 # cp terraform.tfvars.example terraform.tfvars
 
+# Must match the account your AWS credentials resolve to (validated before apply)
+aws_account_id = "123456789012"
+
 aws_region  = "eu-central-1"
 environment = "dev"
 
@@ -30,3 +33,7 @@ ecs_task_memory    = "512"
 
 # Optional: SNS topic for EC2 health alarm notifications
 # ec2_health_alarm_sns_topic_arn = "arn:aws:sns:eu-central-1:123456789012:mongodb-alerts"
+
+# CodeCommit - repository for source control
+create_codecommit_repository = true
+codecommit_repository_name   = "mongotf"

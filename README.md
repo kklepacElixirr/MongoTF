@@ -83,6 +83,14 @@ ssh -i mongo-key.pem ec2-user@$(terraform output -raw ec2_public_ip)
 - **Restrict access**: Set `ssh_allowed_cidrs` and `mongodb_allowed_cidrs` to your IP (e.g. `["1.2.3.4/32"]`) in `terraform.tfvars` for production
 - **Change password**: Update the SSM parameter `/mongodb/MONGO_INITDB_ROOT_PASSWORD` in AWS Console after first apply (Terraform ignores changes to the password value)
 
+## CodeCommit
+
+An optional CodeCommit repository is created by default. See [CODECOMMIT.md](CODECOMMIT.md) for setup and migration from GitHub.
+
+## CI/CD
+
+Terraform can be applied automatically via CodePipeline + CodeBuild. See [CICD.md](CICD.md) for setup.
+
 ## Outputs
 
 | Output | Description |
@@ -90,6 +98,8 @@ ssh -i mongo-key.pem ec2-user@$(terraform output -raw ec2_public_ip)
 | `ec2_public_ip` | Elastic IP for MongoDB connection |
 | `mongodb_connection_string` | Connection string template (replace `<PASSWORD>`) |
 | `ssh_private_key_path` | Path to generated SSH key |
+| `codecommit_clone_url_https` | CodeCommit HTTPS clone URL |
+| `codecommit_clone_url_ssh` | CodeCommit SSH clone URL |
 
 ## License
 
