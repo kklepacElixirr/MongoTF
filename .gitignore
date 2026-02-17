@@ -32,3 +32,6 @@ override.tf.json
 # Ignore CLI configuration files
 .terraformrc
 terraform.rc
+
+# Generated SSH private key for EC2 (contains secrets)
+mongo-key.pem

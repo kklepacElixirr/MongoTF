@@ -5,27 +5,69 @@ terraform {
       source  = "hashicorp/aws"
       version = "5.40.0"
     }
+    tls = {
+      source  = "hashicorp/tls"
+      version = "4.0"
+    }
+    local = {
+      source  = "hashicorp/local"
+      version = "2.5"
+    }
   }
 
-  required_version = ">= 1.6"
+  required_version = ">= 1.14.5"
 }
 
 provider "aws" {
-  region = "eu-central-1"
+  region = var.aws_region
 }
 
 data "aws_availability_zones" "available" {}
+
+# Default VPC
+data "aws_vpc" "default" {
+  default = true
+}
+
+data "aws_subnets" "default" {
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.default.id]
+  }
+}
+
+# Latest Amazon Linux 2023 AMI (required for MongoDB 8.2 repo)
+data "aws_ami" "amazon_linux_2023" {
+  most_recent = true
+  owners      = ["amazon"]
+
+  filter {
+    name   = "name"
+    values = ["al2023-ami-*-x86_64"]
+  }
+
+  filter {
+    name   = "state"
+    values = ["available"]
+  }
+}
 
 # Parameter store
 
 resource "aws_ssm_parameter" "mongodb_secret_password" {
   name  = "/mongodb/MONGO_INITDB_ROOT_PASSWORD"
   type  = "SecureString"
-  value = "Dummy"
+  value = var.mongodb_root_password
 
   lifecycle {
     ignore_changes = [value]
   }
+}
+
+resource "aws_ssm_parameter" "mongodb_root_username" {
+  name  = "/mongodb/MONGO_INITDB_ROOT_USERNAME"
+  type  = "String"
+  value = var.mongodb_root_username
 }
 
 resource "aws_iam_policy" "ssm_parameter_access" {
@@ -49,47 +91,57 @@ resource "aws_iam_policy" "ssm_parameter_access" {
   })
 }
 
+# EC2 instance profile - SSM access for MongoDB auth setup
+resource "aws_iam_role" "ec2_mongo_role" {
+  name = "ec2-mongo-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "ec2.amazonaws.com"
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "ec2_ssm_access" {
+  name   = "ec2-ssm-mongodb"
+  role   = aws_iam_role.ec2_mongo_role.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ssm:GetParameter",
+          "ssm:GetParameters"
+        ]
+        Resource = [
+          aws_ssm_parameter.mongodb_secret_password.arn,
+          aws_ssm_parameter.mongodb_root_username.arn
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = "kms:Decrypt"
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_instance_profile" "ec2_mongo" {
+  name = "ec2-mongo-profile"
+  role = aws_iam_role.ec2_mongo_role.name
+}
+
 # After the code for AWS SSM Paramter Store parameter has been added we must apply the changes to the infrastructure so we are able to change the password.
 # If you are using the example code to deploy the infrastructure, you should comment out everything below here before running terraform init and apply.
-
-# VPC
-resource "aws_vpc" "mongolab_vpc" {
-  cidr_block           = "10.0.0.0/16"
-  enable_dns_support   = true
-  enable_dns_hostnames = true
-}
-
-resource "aws_subnet" "subnets" {
-  count                   = "3"
-  vpc_id                  = aws_vpc.mongolab_vpc.id
-  cidr_block              = "10.0.${count.index}.0/24"
-  availability_zone       = element(data.aws_availability_zones.available.names, count.index)
-  map_public_ip_on_launch = true
-}
-
-resource "aws_internet_gateway" "mongolab_igw" {
-  vpc_id = aws_vpc.mongolab_vpc.id
-}
-
-resource "aws_route_table" "mongolab_route_table" {
-  vpc_id = aws_vpc.mongolab_vpc.id
-
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.mongolab_igw.id
-  }
-
-  tags = {
-    Name = "mongolab_route_table"
-  }
-}
-
-resource "aws_route_table_association" "mongolab_route_association" {
-  count = length(aws_subnet.subnets.*.id)
-
-  subnet_id      = aws_subnet.subnets[count.index].id
-  route_table_id = aws_route_table.mongolab_route_table.id
-}
 
 resource "aws_iam_role" "ecs_mongo_task_execution_role" {
   name = "ecs_mongo_task_execution_role"
@@ -140,13 +192,20 @@ resource "aws_iam_role" "ecs_mongo_task_role" {
 resource "aws_security_group" "ec2_sg" {
   name        = "ec2_sg"
   description = "Security group for EC2 instance"
-  vpc_id      = aws_vpc.mongolab_vpc.id
+  vpc_id      = data.aws_vpc.default.id
 
   ingress {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = var.ssh_allowed_cidrs
+  }
+
+  ingress {
+    from_port   = 27017
+    to_port     = 27017
+    protocol    = "tcp"
+    cidr_blocks = var.mongodb_allowed_cidrs
   }
 
   egress {
@@ -160,7 +219,7 @@ resource "aws_security_group" "ec2_sg" {
 resource "aws_security_group" "mongo_ecs_tasks_sg" {
   name        = "mongo-ecs-tasks-sg"
   description = "Security group for ECS MongoDB tasks"
-  vpc_id      = aws_vpc.mongolab_vpc.id
+  vpc_id      = data.aws_vpc.default.id
 
   ingress {
     from_port       = 27017
@@ -184,13 +243,13 @@ resource "aws_security_group" "mongo_ecs_tasks_sg" {
 resource "aws_security_group" "efs_sg" {
   name        = "efs-mongolab-sg"
   description = "Security group for EFS"
-  vpc_id      = aws_vpc.mongolab_vpc.id
+  vpc_id      = data.aws_vpc.default.id
 
   ingress {
     from_port   = 2049
     to_port     = 2049
     protocol    = "tcp"
-    cidr_blocks = [aws_vpc.mongolab_vpc.cidr_block]
+    cidr_blocks = [data.aws_vpc.default.cidr_block]
   }
 }
 
@@ -204,9 +263,9 @@ resource "aws_efs_file_system" "mongolab_file_system" {
 }
 
 resource "aws_efs_mount_target" "efs_mount_target" {
-  count           = length(aws_subnet.subnets.*.id)
+  count           = length(data.aws_subnets.default.ids)
   file_system_id  = aws_efs_file_system.mongolab_file_system.id
-  subnet_id       = aws_subnet.subnets[count.index].id
+  subnet_id       = tolist(data.aws_subnets.default.ids)[count.index]
   security_groups = [aws_security_group.efs_sg.id]
 }
 
@@ -239,8 +298,8 @@ resource "aws_iam_role_policy_attachment" "ecr_efs_access_policy_attachment" {
 
 
 resource "aws_cloudwatch_log_group" "ecs_logs" {
-  name              = "/ecs/mongolab"
-  retention_in_days = 30
+  name              = "/ecs/mongolab-${var.environment}"
+  retention_in_days = var.log_retention_days
 }
 
 resource "aws_ecs_cluster" "mongolab_cluster" {
@@ -248,18 +307,18 @@ resource "aws_ecs_cluster" "mongolab_cluster" {
 }
 
 resource "aws_ecs_task_definition" "mongo_task_definition" {
-  family                   = "mongolab-mongodb"
+  family                   = "mongolab-mongodb-${var.environment}"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
-  cpu                      = "256"
-  memory                   = "512"
+  cpu                      = var.ecs_task_cpu
+  memory                   = var.ecs_task_memory
   execution_role_arn       = aws_iam_role.ecs_mongo_task_execution_role.arn
   task_role_arn            = aws_iam_role.ecs_mongo_task_role.arn
 
   container_definitions = jsonencode([
     {
       name      = "mongo",
-      image     = "mongo:latest",
+      image     = var.mongo_image,
       cpu       = 256,
       memory    = 512,
       essential = true,
@@ -280,11 +339,11 @@ resource "aws_ecs_task_definition" "mongo_task_definition" {
       environment = [
         {
           name  = "MONGO_INITDB_ROOT_USERNAME"
-          value = "mongolabadmin"
+          value = var.mongodb_root_username
         },
         {
           name  = "MONGO_INITDB_DATABASE"
-          value = "mongolab"
+          value = var.mongodb_database
         }
       ],
       secrets = [
@@ -304,7 +363,7 @@ resource "aws_ecs_task_definition" "mongo_task_definition" {
         logDriver = "awslogs"
         options = {
           awslogs-group         = aws_cloudwatch_log_group.ecs_logs.name
-          awslogs-region        = "eu-central-1"
+          awslogs-region        = var.aws_region
           awslogs-stream-prefix = "mongodb"
         }
       }
@@ -326,7 +385,7 @@ resource "aws_ecs_task_definition" "mongo_task_definition" {
 
 resource "aws_service_discovery_private_dns_namespace" "mongolab_monitoring" {
   name = "mongolab.local"
-  vpc  = aws_vpc.mongolab_vpc.id
+  vpc  = data.aws_vpc.default.id
 }
 
 resource "aws_service_discovery_service" "mongo_discovery_service" {
@@ -354,7 +413,7 @@ resource "aws_ecs_service" "mongo_service" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets          = aws_subnet.subnets[*].id
+    subnets          = data.aws_subnets.default.ids
     security_groups  = [aws_security_group.mongo_ecs_tasks_sg.id]
     assign_public_ip = true
   }
@@ -365,50 +424,115 @@ resource "aws_ecs_service" "mongo_service" {
 
 }
 
-# EC2 instance
+# EC2 instance - SSH key (generated by Terraform if you don't have one)
+
+resource "tls_private_key" "mongo" {
+  algorithm = "RSA"
+  rsa_bits  = 4096
+}
 
 resource "aws_key_pair" "ec2_keypair" {
-  key_name   = "mongolabkey"
-  public_key = file("~/.ssh/mongolab.pub")
+  key_name   = var.key_pair_name
+  public_key = tls_private_key.mongo.public_key_openssh
+}
+
+resource "local_file" "mongo_private_key" {
+  content         = tls_private_key.mongo.private_key_pem
+  filename        = "${path.module}/mongo-key.pem"
+  file_permission = "0600"
+}
+
+resource "aws_eip" "mongo" {
+  domain = "vpc"
+  tags = {
+    Name = "mongolab-eip-${var.environment}"
+  }
+}
+
+# EBS volume for MongoDB data (MongoDB WiredTiger does not support EFS/NFS)
+data "aws_subnet" "ec2_subnet" {
+  id = tolist(data.aws_subnets.default.ids)[0]
+}
+resource "aws_ebs_volume" "mongodb_data" {
+  availability_zone = data.aws_subnet.ec2_subnet.availability_zone
+  size              = var.ec2_mongodb_volume_size
+  type              = "gp3"
+  encrypted         = true
+
+  tags = {
+    Name = "mongolab-mongodb-data-${var.environment}"
+  }
 }
 
 resource "aws_instance" "mongolab_ec2_instance" {
-  ami           = "ami-01be94ae58414ab2e"
-  instance_type = "t2.micro"
-  subnet_id     = aws_subnet.subnets[0].id
-  key_name      = aws_key_pair.ec2_keypair.key_name
+  ami                  = var.ec2_ami != "" ? var.ec2_ami : data.aws_ami.amazon_linux_2023.id
+  instance_type        = var.ec2_instance_type
+  subnet_id            = tolist(data.aws_subnets.default.ids)[0]
+  key_name             = aws_key_pair.ec2_keypair.key_name
+  iam_instance_profile = aws_iam_instance_profile.ec2_mongo.name
 
   security_groups = [aws_security_group.ec2_sg.id]
 
-  user_data = <<-EOF
-              #!/bin/bash
+  user_data = templatefile("${path.module}/user-data.sh", {
+    aws_region = var.aws_region
+  })
 
-              # Add the MongoDB repository
-              cat <<EOT > /etc/yum.repos.d/mongodb-org-7.0.repo
-              [mongodb-org-7.0]
-              name=MongoDB Repository
-              baseurl=https://repo.mongodb.org/yum/amazon/2023/mongodb-org/7.0/x86_64/
-              gpgcheck=1
-              enabled=1
-              gpgkey=https://pgp.mongodb.com/server-7.0.asc
-              EOT
+  tags = {
+    Name        = "mongolab-mongodb-${var.environment}"
+    Role        = "mongodb"
+    Environment = var.environment
+  }
+}
 
-              # Update your system
-              dnf update -y
+resource "aws_volume_attachment" "mongodb_data" {
+  device_name = "/dev/sdf"
+  volume_id   = aws_ebs_volume.mongodb_data.id
+  instance_id = aws_instance.mongolab_ec2_instance.id
+}
 
-              # Install MongoDB
-              dnf install -y mongodb-org
+resource "aws_eip_association" "mongo" {
+  instance_id   = aws_instance.mongolab_ec2_instance.id
+  allocation_id = aws_eip.mongo.id
+}
 
-              # Start the MongoDB service
-              systemctl start mongod
+# EC2 health check: CloudWatch alarm on status check failures (system + instance reachability)
+resource "aws_cloudwatch_metric_alarm" "mongodb_ec2_health" {
+  alarm_name          = "mongolab-ec2-health-${var.environment}"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 2
+  metric_name         = "StatusCheckFailed"
+  namespace           = "AWS/EC2"
+  period              = 60
+  statistic           = "Maximum"
+  threshold           = 0
 
-              # Enable MongoDB to start on boot
-              systemctl enable mongod
+  dimensions = {
+    InstanceId = aws_instance.mongolab_ec2_instance.id
+  }
 
-              # Fix issue with openssl
-              dnf erase -qy mongodb-mongosh
-              dnf install -qy mongodb-mongosh-shared-openssl3
-              EOF
+  alarm_description = "MongoDB EC2 instance status check failed (system or instance unreachable)"
+  alarm_actions      = var.ec2_health_alarm_sns_topic_arn != null ? [var.ec2_health_alarm_sns_topic_arn] : []
+  treat_missing_data = "breaching"
+}
+
+output "ssh_private_key_path" {
+  description = "Path to the generated SSH private key for EC2 access"
+  value       = local_file.mongo_private_key.filename
+}
+
+output "ec2_public_ip" {
+  description = "Static public IP of the MongoDB EC2 instance (Elastic IP)"
+  value       = aws_eip.mongo.public_ip
+}
+
+output "ec2_ami_used" {
+  description = "AMI ID used for the EC2 instance"
+  value       = aws_instance.mongolab_ec2_instance.ami
+}
+
+output "mongodb_connection_string" {
+  description = "MongoDB connection string (with auth)"
+  value       = "mongodb://${var.mongodb_root_username}:<PASSWORD>@${aws_eip.mongo.public_ip}:27017"
 }
 
 
