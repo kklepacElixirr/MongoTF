@@ -1,0 +1,5 @@
+# Pipeline watches this CodeCommit repo (must match your actual repo name - case-sensitive)
+codecommit_repository_name = "MongoTF"
+
+# Optional: enable auto-apply on push
+# approve_apply = true

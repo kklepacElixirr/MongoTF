@@ -9,8 +9,9 @@ variable "project_name" {
 }
 
 variable "codecommit_repository_name" {
-  type    = string
-  default = "mongotf"
+  type        = string
+  default     = "mongotf"
+  description = "CodeCommit repo name - must match exactly (case-sensitive). Use MongoTF if your repo is named MongoTF."
 }
 
 variable "approve_apply" {
