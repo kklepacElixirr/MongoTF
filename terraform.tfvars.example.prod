@@ -1,0 +1,31 @@
+# Example tfvars for PROD — copy and set aws_account_id + mongodb_root_password
+# cp terraform.tfvars.example.prod terraform.tfvars
+# Resource names get prefix prod_; SSM path: /mongodb/prod
+
+aws_account_id = "123456789012"
+aws_region     = "eu-central-1"
+environment    = "prod"
+
+# MongoDB — stored in SSM at /mongodb/prod/MONGO_INITDB_*
+mongodb_root_username = "mongolabadmin"
+mongodb_root_password = "ChangeMeProdStrong123!"
+mongodb_database      = "mongolab"
+
+# Prod: restrict to application IPs / VPN only
+ssh_allowed_cidrs     = ["YOUR_BASTION_OR_OFFICE_IP/32"]
+mongodb_allowed_cidrs = ["YOUR_APP_SERVER_IP/32", "YOUR_OFFICE_IP/32"]
+
+# EC2 — larger instance and disk
+ec2_instance_type        = "t3.medium"
+ec2_mongodb_volume_size  = 100
+ec2_ami                  = ""
+
+key_pair_name = "mongolabkey"
+mongo_image   = "mongo:8.2"
+
+log_retention_days = 90
+ecs_task_cpu       = "1024"
+ecs_task_memory    = "2048"
+
+# Prod: enable SNS alerts for EC2 health
+ec2_health_alarm_sns_topic_arn = "arn:aws:sns:eu-central-1:123456789012:mongodb-prod-alerts"

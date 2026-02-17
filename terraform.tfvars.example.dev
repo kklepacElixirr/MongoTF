@@ -1,0 +1,32 @@
+# Example tfvars for DEV — copy and set aws_account_id + mongodb_root_password
+# cp terraform.tfvars.example.dev terraform.tfvars
+# Resource names get prefix dev_; SSM path: /mongodb/dev
+
+aws_account_id = "123456789012"
+aws_region     = "eu-central-1"
+environment    = "dev"
+
+# MongoDB — stored in SSM at /mongodb/dev/MONGO_INITDB_*
+mongodb_root_username = "mongolabadmin"
+mongodb_root_password = "ChangeMeDev123!"
+mongodb_database      = "mongolab"
+
+# Dev: often open; restrict to team VPN or IPs for tighter security
+ssh_allowed_cidrs     = ["0.0.0.0/0"]
+mongodb_allowed_cidrs = ["0.0.0.0/0"]
+
+# EC2 — smaller/cheaper for dev
+ec2_instance_type        = "t2.micro"
+ec2_mongodb_volume_size  = 20
+ec2_ami                  = "" # empty = latest Amazon Linux 2023
+
+key_pair_name = "mongolabkey"
+mongo_image   = "mongo:latest"
+
+# Logs and ECS (if used)
+log_retention_days = 7
+ecs_task_cpu       = "256"
+ecs_task_memory    = "512"
+
+# Optional: SNS for EC2 health alarm
+ec2_health_alarm_sns_topic_arn = null

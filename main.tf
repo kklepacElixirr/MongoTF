@@ -1,6 +1,11 @@
 terraform {
-  # Backend: use -backend-config=backend.hcl (or -backend-config=key=value ...) or switch to local
-  backend "s3" {}
+  # Default: local state (no S3 bucket required). For remote state, use backend "s3" {} and run:
+  #   terraform init -reconfigure -backend-config=backend.hcl
+  # (create backend.hcl from backend.hcl.example and create the S3 bucket first.)
+  backend "local" {
+    path = "terraform.tfstate"
+  }
+  # backend "s3" {}
 
   required_providers {
     aws = {
@@ -25,6 +30,13 @@ provider "aws" {
 }
 
 data "aws_caller_identity" "current" {}
+
+# Prefix for resource names: dev_, stage_, or prod_ (from environment in tfvars)
+locals {
+  env_prefix  = var.environment == "staging" ? "stage" : (var.environment == "prod" ? "prod" : "dev")
+  name_prefix = "${local.env_prefix}_"
+  ssm_path    = "/mongodb/${local.env_prefix}"
+}
 
 check "aws_account_match" {
   assert {
@@ -63,10 +75,10 @@ data "aws_ami" "amazon_linux_2023" {
   }
 }
 
-# Parameter store
+# Parameter store (paths are per-environment: /mongodb/dev, /mongodb/stage, /mongodb/prod)
 
 resource "aws_ssm_parameter" "mongodb_secret_password" {
-  name  = "/mongodb/MONGO_INITDB_ROOT_PASSWORD"
+  name  = "${local.ssm_path}/MONGO_INITDB_ROOT_PASSWORD"
   type  = "SecureString"
   value = var.mongodb_root_password
 
@@ -76,7 +88,7 @@ resource "aws_ssm_parameter" "mongodb_secret_password" {
 }
 
 resource "aws_ssm_parameter" "mongodb_root_username" {
-  name  = "/mongodb/MONGO_INITDB_ROOT_USERNAME"
+  name  = "${local.ssm_path}/MONGO_INITDB_ROOT_USERNAME"
   type  = "String"
   value = var.mongodb_root_username
 }
@@ -104,7 +116,7 @@ resource "aws_iam_policy" "ssm_parameter_access" {
 
 # EC2 instance profile - SSM access for MongoDB auth setup
 resource "aws_iam_role" "ec2_mongo_role" {
-  name = "ec2-mongo-role"
+  name = "${local.name_prefix}ec2-mongo-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -121,7 +133,7 @@ resource "aws_iam_role" "ec2_mongo_role" {
 }
 
 resource "aws_iam_role_policy" "ec2_ssm_access" {
-  name   = "ec2-ssm-mongodb"
+  name   = "${local.name_prefix}ec2-ssm-mongodb"
   role   = aws_iam_role.ec2_mongo_role.id
   policy = jsonencode({
     Version = "2012-10-17"
@@ -147,7 +159,7 @@ resource "aws_iam_role_policy" "ec2_ssm_access" {
 }
 
 resource "aws_iam_instance_profile" "ec2_mongo" {
-  name = "ec2-mongo-profile"
+  name = "${local.name_prefix}ec2-mongo-profile"
   role = aws_iam_role.ec2_mongo_role.name
 }
 
@@ -201,7 +213,7 @@ resource "aws_iam_role" "ecs_mongo_task_role" {
 }
 
 resource "aws_security_group" "ec2_sg" {
-  name        = "ec2_sg"
+  name        = "${local.name_prefix}ec2_sg"
   description = "Security group for EC2 instance"
   vpc_id      = data.aws_vpc.default.id
 
@@ -228,7 +240,7 @@ resource "aws_security_group" "ec2_sg" {
 }
 
 resource "aws_security_group" "mongo_ecs_tasks_sg" {
-  name        = "mongo-ecs-tasks-sg"
+  name        = "${local.name_prefix}mongo-ecs-tasks-sg"
   description = "Security group for ECS MongoDB tasks"
   vpc_id      = data.aws_vpc.default.id
 
@@ -252,7 +264,7 @@ resource "aws_security_group" "mongo_ecs_tasks_sg" {
 }
 
 resource "aws_security_group" "efs_sg" {
-  name        = "efs-mongolab-sg"
+  name        = "${local.name_prefix}efs-mongolab-sg"
   description = "Security group for EFS"
   vpc_id      = data.aws_vpc.default.id
 
@@ -443,13 +455,13 @@ resource "tls_private_key" "mongo" {
 }
 
 resource "aws_key_pair" "ec2_keypair" {
-  key_name   = var.key_pair_name
+  key_name   = "${local.name_prefix}${var.key_pair_name}"
   public_key = tls_private_key.mongo.public_key_openssh
 }
 
 resource "local_file" "mongo_private_key" {
   content         = tls_private_key.mongo.private_key_pem
-  filename        = "${path.module}/mongo-key.pem"
+  filename        = "${path.module}/${local.name_prefix}mongo-key.pem"
   file_permission = "0600"
 }
 
@@ -485,7 +497,8 @@ resource "aws_instance" "mongolab_ec2_instance" {
   security_groups = [aws_security_group.ec2_sg.id]
 
   user_data = templatefile("${path.module}/user-data.sh", {
-    aws_region = var.aws_region
+    aws_region     = var.aws_region
+    ssm_path_base = local.ssm_path
   })
 
   tags = {
@@ -544,4 +557,26 @@ output "ec2_ami_used" {
 output "mongodb_connection_string" {
   description = "MongoDB connection string (with auth)"
   value       = "mongodb://${var.mongodb_root_username}:<PASSWORD>@${aws_eip.mongo.public_ip}:27017"
+}
+
+# Write outputs to outputs/<env_prefix>_outputs.json (e.g. dev_outputs.json, stage_outputs.json, prod_outputs.json)
+locals {
+  outputs_json = jsonencode({
+    environment       = var.environment
+    ssh_private_key_path = local_file.mongo_private_key.filename
+    ec2_public_ip     = aws_eip.mongo.public_ip
+    ec2_ami_used      = aws_instance.mongolab_ec2_instance.ami
+    mongodb_connection_string = "mongodb://${var.mongodb_root_username}:<PASSWORD>@${aws_eip.mongo.public_ip}:27017"
+  })
+}
+
+resource "local_file" "outputs_json" {
+  content         = local.outputs_json
+  filename        = "${path.module}/outputs/${local.env_prefix}_outputs.json"
+  file_permission = "0644"
+}
+
+output "outputs_file" {
+  description = "Path to the generated outputs JSON file"
+  value       = local_file.outputs_json.filename
 }

@@ -5,6 +5,7 @@
 aws_account_id = "804552982765"
 
 aws_region  = "eu-central-1"
+# dev, staging, or prod — resource names are prefixed with dev_, stage_, or prod_; SSM paths use /mongodb/dev, /mongodb/stage, /mongodb/prod
 environment = "dev"
 
 # MongoDB credentials (change password in AWS SSM after first apply)

@@ -44,12 +44,35 @@ Terraform module that provisions **MongoDB 8.2** on a single EC2 instance with E
 
 ## Quick start
 
+**Option A — Script (Mac, Linux, Windows):**
+
+From the project root:
+
+- **Mac / Linux / Git Bash (Windows):**  
+  `./scripts/create-mongo-infra.sh`  
+  If `terraform.tfvars` exists, it runs Terraform with it. Otherwise set env vars and the script will write `terraform.tfvars` and run Terraform:
+  - `AWS_ACCOUNT_ID` (required with script-generated tfvars)
+  - `MONGO_PASSWORD` (required; stored in SSM on apply)
+  - `MONGO_ENVIRONMENT` — `dev`, `staging`, or `prod` (resource names get prefix `dev_`, `stage_`, or `prod_`; SSM paths use `/mongodb/dev`, `/mongodb/stage`, `/mongodb/prod`)
+  - Optional: `MONGO_USERNAME`, `MONGO_DB_NAME`, `AWS_REGION`  
+  Example: `AWS_ACCOUNT_ID=123456789012 MONGO_PASSWORD=Secret1 MONGO_ENVIRONMENT=dev ./scripts/create-mongo-infra.sh`
+
+- **Windows (PowerShell):**  
+  `.\scripts\create-mongo-infra.ps1`  
+  Same env vars; set with `$env:AWS_ACCOUNT_ID = "123456789012"` etc.
+
+**Option B — Manual:**
+
 ```bash
 cp terraform.tfvars.example terraform.tfvars
-# Edit terraform.tfvars: set aws_account_id, mongodb_root_password, and restrict CIDRs for production
+# Edit terraform.tfvars: set aws_account_id, mongodb_root_password, environment (dev|staging|prod), and restrict CIDRs for production
 terraform init
 terraform apply
 ```
+
+**Apply only (after code changes):** If you already have `terraform.tfvars` and only changed Terraform code, run `./scripts/apply-mongo-infra.sh` (or `.\scripts\apply-mongo-infra.ps1` on Windows) to run `terraform init` and `terraform apply` without creating a new instance or changing the password. See [docs/CREATE-INFRA.md](docs/CREATE-INFRA.md#apply-only-script-code-changes).
+
+**Environment and naming:** Set `environment = "dev"`, `"staging"`, or `"prod"` in `terraform.tfvars`. Resource names are prefixed with `dev_`, `stage_`, or `prod_`; credentials are stored in SSM under `/mongodb/dev`, `/mongodb/stage`, or `/mongodb/prod` so you can run multiple stacks in the same account.
 
 After apply, get the connection details:
 
@@ -64,13 +87,17 @@ terraform output mongodb_connection_string
 
 | File | Purpose |
 |------|---------|
-| `terraform.tfvars` | Your values (create from `terraform.tfvars.example`; **do not commit**) |
-| `terraform.tfvars.example` | Template with all variables and comments |
+| `terraform.tfvars` | Your values (create from an example; **do not commit**) |
+| `terraform.tfvars.example` | Generic template with all variables |
+| `terraform.tfvars.example.dev` | Dev example (all vars; prefix `dev_`, SSM `/mongodb/dev`) |
+| `terraform.tfvars.example.staging` | Staging example (prefix `stage_`, SSM `/mongodb/stage`) |
+| `terraform.tfvars.example.prod` | Prod example (prefix `prod_`, SSM `/mongodb/prod`) |
 
 **Required for first run:**
 
 - `aws_account_id` — Must match the account your AWS credentials resolve to (12 digits; validated by Terraform).
-- `mongodb_root_password` — Initial password; stored in SSM. Change it in AWS Console after first apply (Terraform ignores subsequent value changes).
+- `mongodb_root_password` — Initial password; stored in SSM at `/mongodb/<env>/MONGO_INITDB_ROOT_PASSWORD` (env = dev, stage, prod). Change it in AWS Console after first apply (Terraform ignores subsequent value changes).
+- `environment` — `dev`, `staging`, or `prod`; prefixes resource names and SSM paths.
 
 **Recommended for production:**
 
@@ -163,22 +190,43 @@ terraform destroy
 
 ## SSH access
 
-Terraform generates an SSH key and saves it as `mongo-key.pem`:
+Terraform generates an SSH key and saves it with the environment prefix: `dev_mongo-key.pem`, `stage_mongo-key.pem`, or `prod_mongo-key.pem`. Use the path from the output:
 
 ```bash
-chmod 600 mongo-key.pem
-ssh -i mongo-key.pem ec2-user@$(terraform output -raw ec2_public_ip)
+KEY=$(terraform output -raw ssh_private_key_path)
+chmod 600 "$KEY"
+ssh -i "$KEY" ec2-user@$(terraform output -raw ec2_public_ip)
 ```
 
 ---
 
 ## Changing the MongoDB password
 
-The instance reads the root password from **Parameter Store** only **at first boot** (in user-data). If you change **`/mongodb/MONGO_INITDB_ROOT_PASSWORD`** in SSM later, the running MongoDB still has the old password until you update it.
+The instance reads the root password from **Parameter Store** only **at first boot** (in user-data). If you change the password in SSM later, the running MongoDB still has the old password until you update it.
+
+**Option A — Rotate script (recommended):** Updates SSM and the running MongoDB in one go. Run from the project root (requires `outputs/<env>_outputs.json` from a prior apply):
+
+```bash
+# Mac/Linux/Git Bash (prompts for new password)
+./scripts/rotate-mongo-password.sh --env dev
+
+# Or set new password via env and optionally restart mongod
+MONGO_NEW_PASSWORD='NewSecure1!' ./scripts/rotate-mongo-password.sh --env dev --restart
+```
+
+```powershell
+# Windows PowerShell
+.\scripts\rotate-mongo-password.ps1 -Env dev
+# Or: $env:MONGO_NEW_PASSWORD = 'NewSecure1!'; .\scripts\rotate-mongo-password.ps1 -Env dev -Restart
+```
+
+The script: (1) reads the current password from SSM, (2) prompts for or uses `MONGO_NEW_PASSWORD`, (3) updates SSM with the new password, (4) SSHs to the EC2 instance and runs `changeUserPassword` on MongoDB. Use `--restart` / `-Restart` to restart `mongod` after the change.
+
+**Option B — Manual (SSH):**
 
 1. **SSH in** (use the password that currently works):
    ```bash
-   ssh -i mongo-key.pem ec2-user@$(terraform output -raw ec2_public_ip)
+   ssh -i "$(terraform output -raw ssh_private_key_path)" ec2-user@$(terraform output -raw ec2_public_ip)
    ```
 
 2. **Connect and set the new password** (replace `CURRENT_PASSWORD` and `NEW_PASSWORD`; use the value you set in Parameter Store for `NEW_PASSWORD`):
@@ -203,6 +251,9 @@ The instance reads the root password from **Parameter Store** only **at first bo
 
 | Document | Description |
 |----------|-------------|
+| [docs/CREATE-INFRA.md](docs/CREATE-INFRA.md) | Create infra: script and manual flow, examples (dev/staging/prod), troubleshooting |
+| [docs/APPLY-INFRA.md](docs/APPLY-INFRA.md) | Apply only: run Terraform apply after code changes (no new instance, no password change) |
+| [docs/ROTATE-PASSWORD.md](docs/ROTATE-PASSWORD.md) | Rotate MongoDB password: script and manual, examples, troubleshooting |
 | [docs/IAM-MINIMAL-POLICIES.md](docs/IAM-MINIMAL-POLICIES.md) | Minimal IAM policies for Terraform |
 
 ---
@@ -213,7 +264,8 @@ The instance reads the root password from **Parameter Store** only **at first bo
 |--------|-------------|
 | `ec2_public_ip` | Elastic IP for MongoDB connection |
 | `mongodb_connection_string` | Connection string template (replace `<PASSWORD>`) |
-| `ssh_private_key_path` | Path to generated SSH key (`mongo-key.pem`) |
+| `ssh_private_key_path` | Path to generated SSH key (e.g. `dev_mongo-key.pem`, `stage_mongo-key.pem`, `prod_mongo-key.pem`) |
+| `outputs_file` | Path to `outputs/<env>_outputs.json` (e.g. `outputs/dev_outputs.json`, `outputs/stage_outputs.json`, `outputs/prod_outputs.json`) with all outputs as JSON |
 
 ---
 
@@ -223,9 +275,11 @@ The instance reads the root password from **Parameter Store** only **at first bo
 |-------|--------------------|
 | **`aws_account_id must be exactly 12 digits`** | Set `aws_account_id` in `terraform.tfvars` to your 12-digit account ID. Get it: `aws sts get-caller-identity --query Account --output text`. |
 | **MongoDB connection refused** | Ensure security group allows your IP on port 27017 (`mongodb_allowed_cidrs`). Wait a few minutes after apply for user-data to finish installing MongoDB. |
-| **SSH "Permission denied"** | Use `ssh -i mongo-key.pem ec2-user@...` and ensure `mongo-key.pem` has mode `600`. Confirm your IP is in `ssh_allowed_cidrs`. |
+| **SSH "Permission denied"** | Use `ssh -i $(terraform output -raw ssh_private_key_path) ec2-user@...` and ensure the key file has mode `600`. Confirm your IP is in `ssh_allowed_cidrs`. |
 | **Password not working** | If you changed the password in SSM, the running instance still has the old one until you apply it: SSH in and run `db.changeUserPassword()` (see [Changing the MongoDB password](#changing-the-mongodb-password)). |
 | **State / backend errors** | If using remote state, run `terraform init -reconfigure` with the correct backend config. |
+| **ExpiredToken / 403** | AWS credentials expired. Refresh them: `aws sso login` (SSO) or re-export access keys / `AWS_PROFILE`. |
+| **Backend "dynamodb_table is deprecated"** | Use S3-native locking: in your backend config set `use_lockfile = true` and remove `dynamodb_table`. See `backend.hcl.example`. |
 
 ---
 

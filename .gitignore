@@ -35,6 +35,10 @@ terraform.rc
 
 # Generated SSH private key for EC2 (contains secrets)
 mongo-key.pem
+*_mongo-key.pem
 
 # Backend config (account-specific)
 backend.hcl
+
+# Generated outputs per environment (optional: remove to commit)
+outputs/*_outputs.json

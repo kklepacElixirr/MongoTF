@@ -83,9 +83,9 @@ for i in {1..30}; do
   sleep 1
 done
 
-# Fetch credentials from SSM (instance has IAM role)
-ROOT_USER=$(aws ssm get-parameter --name /mongodb/MONGO_INITDB_ROOT_USERNAME --query Parameter.Value --output text --region "$REGION" 2>/dev/null || echo "mongolabadmin")
-ROOT_PASS=$(aws ssm get-parameter --with-decryption --name /mongodb/MONGO_INITDB_ROOT_PASSWORD --query Parameter.Value --output text --region "$REGION")
+# Fetch credentials from SSM (instance has IAM role); path is per-environment (e.g. /mongodb/dev)
+ROOT_USER=$(aws ssm get-parameter --name ${ssm_path_base}/MONGO_INITDB_ROOT_USERNAME --query Parameter.Value --output text --region "$REGION" 2>/dev/null || echo "mongolabadmin")
+ROOT_PASS=$(aws ssm get-parameter --with-decryption --name ${ssm_path_base}/MONGO_INITDB_ROOT_PASSWORD --query Parameter.Value --output text --region "$REGION")
 
 # Create admin user (write creds to temp files to handle special chars in password)
 echo "$ROOT_USER" > /tmp/mongo_user
