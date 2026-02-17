@@ -55,6 +55,11 @@ phases:
       - |
         if [ "$APPROVE_APPLY" = "true" ] && [ "$ROTATE_MONGODB_PASSWORD" = "true" ]; then
           echo "ROTATE_MONGODB_PASSWORD enabled — syncing MongoDB password on instance via SSM..."
+          # Terraform image has no aws/python3; install for this phase (Alpine base)
+          (apk add --no-cache python3 unzip curl 2>/dev/null || true)
+          (curl -sSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip && unzip -q -o /tmp/awscliv2.zip -d /tmp && /tmp/aws/install -i /usr/local/aws-cli -b /usr/local/bin) 2>/dev/null || (apk add --no-cache aws-cli 2>/dev/null || true)
+          export PATH="/usr/local/bin:$PATH"
+          command -v aws >/dev/null 2>&1 || { echo "Could not install AWS CLI"; exit 1; }
           aws ssm put-parameter --name /mongodb/MONGO_INITDB_ROOT_PASSWORD_NEW --value "$TF_VAR_mongodb_root_password" --type SecureString --overwrite --region "$AWS_REGION"
           INSTANCE_ID=$(terraform output -raw ec2_instance_id)
           SCRIPT_JSON=$(python3 -c "import json; print(json.dumps(open('scripts/rotate-mongodb-password.sh').read()))")
