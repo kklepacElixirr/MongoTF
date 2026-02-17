@@ -10,7 +10,7 @@ variable "project_name" {
 
 variable "codecommit_repository_name" {
   type    = string
-  default = "MongoTF"
+  default = "mongotf"
 }
 
 variable "approve_apply" {
