@@ -58,6 +58,12 @@ variable "ec2_instance_type" {
   default     = "t2.micro"
 }
 
+variable "ec2_root_volume_size" {
+  description = "Root EBS volume size in GB (default 8 is often too small for MongoDB install; use 16+ to avoid user-data failure)"
+  type        = number
+  default     = 16
+}
+
 variable "ec2_ami" {
   description = "AMI ID for EC2 (empty = use latest Amazon Linux 2023)"
   type        = string
@@ -68,30 +74,6 @@ variable "key_pair_name" {
   description = "Name of the SSH key pair"
   type        = string
   default     = "mongolabkey"
-}
-
-variable "mongo_image" {
-  description = "Docker image for ECS MongoDB task"
-  type        = string
-  default     = "mongo:latest"
-}
-
-variable "log_retention_days" {
-  description = "CloudWatch log retention in days"
-  type        = number
-  default     = 30
-}
-
-variable "ecs_task_cpu" {
-  description = "ECS task CPU units"
-  type        = string
-  default     = "256"
-}
-
-variable "ecs_task_memory" {
-  description = "ECS task memory in MB"
-  type        = string
-  default     = "512"
 }
 
 variable "ec2_health_alarm_sns_topic_arn" {

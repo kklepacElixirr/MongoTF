@@ -27,7 +27,7 @@ The setup provisions:
 - **EBS** volume for MongoDB data (persists across instance replacement)
 - **Elastic IP** for a stable connection host
 - **SSM Parameter Store** parameters for root username and password (per environment)
-- **Security groups**, IAM roles, SSH key pair, and optional ECS/EFS resources
+- **Security groups**, IAM roles, and SSH key pair
 
 You can run **multiple environments** (dev, staging, prod) in the same AWS account; each uses a different name prefix and SSM path.
 

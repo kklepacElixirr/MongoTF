@@ -15,17 +15,13 @@ mongodb_database      = "mongolab"
 ssh_allowed_cidrs     = ["10.0.0.0/8", "YOUR_OFFICE_IP/32"]
 mongodb_allowed_cidrs = ["10.0.0.0/8", "YOUR_OFFICE_IP/32"]
 
-# EC2 — medium size for staging
+# EC2 — medium size for staging (root = OS; data = Payload CMS DB)
 ec2_instance_type        = "t3.small"
+ec2_root_volume_size     = 16
 ec2_mongodb_volume_size  = 30
 ec2_ami                  = ""
 
 key_pair_name = "mongolabkey"
-mongo_image   = "mongo:latest"
-
-log_retention_days = 14
-ecs_task_cpu       = "512"
-ecs_task_memory    = "1024"
 
 ec2_health_alarm_sns_topic_arn = null
 # Or: "arn:aws:sns:eu-central-1:123456789012:mongodb-staging-alerts"

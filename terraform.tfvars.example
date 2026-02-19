@@ -20,17 +20,13 @@ mongodb_database      = "mongolab"
 ssh_allowed_cidrs     = ["0.0.0.0/0"]
 mongodb_allowed_cidrs = ["0.0.0.0/0"]
 
-# EC2
-ec2_instance_type         = "t2.micro"
-ec2_mongodb_volume_size  = 20
-# ec2_ami         = ""  # empty = auto-detect latest Amazon Linux 2023
+# EC2 — root volume = OS + MongoDB binaries; data volume = MongoDB/Payload CMS data
+ec2_instance_type        = "t2.micro"
+ec2_root_volume_size    = 16   # GB; 16+ avoids install failures (default AMI ~8 GB is too small)
+ec2_mongodb_volume_size = 20   # GB for /var/lib/mongo (increase for larger Payload DB, e.g. 50–100)
+# ec2_ami = ""  # empty = auto-detect latest Amazon Linux 2023
 
 key_pair_name = "mongolabkey"
-mongo_image   = "mongo:latest"
-
-log_retention_days = 30
-ecs_task_cpu       = "256"
-ecs_task_memory    = "512"
 
 # Optional: SNS topic for EC2 health alarm notifications
 # ec2_health_alarm_sns_topic_arn = "arn:aws:sns:eu-central-1:123456789012:mongodb-alerts"

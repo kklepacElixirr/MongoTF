@@ -1,6 +1,6 @@
 # Minimal IAM policies for MongoTF
 
-Minimum permissions for an IAM user to run the **main** Terraform (MongoDB on EC2, ECS, SSM, etc.).
+Minimum permissions for an IAM user to run the **main** Terraform (MongoDB on EC2, SSM, etc.).
 
 Use **managed policies** only; inline policies have a 2,048-byte limit and can cause failures.
 
@@ -21,7 +21,7 @@ Use **managed policies** only; inline policies have a 2,048-byte limit and can c
 
 | Policy | Purpose |
 |--------|---------|
-| **PowerUserAccess** | EC2, EBS, EIP, S3, ECS, EFS, SSM Parameter Store, CloudWatch, and most AWS services (excludes IAM) |
+| **PowerUserAccess** | EC2, EBS, EIP, S3, SSM Parameter Store, CloudWatch, and most AWS services (excludes IAM) |
 | **IAMFullAccess** | Create roles, policies, instance profiles; list operations Terraform needs |
 
 **Do not use inline policies** for these permissions—use only **managed policies**.
@@ -79,8 +79,6 @@ terraform plan
 ### PowerUserAccess
 
 - **EC2:** Instances, EBS, EIP, security groups, AMIs, key pairs.
-- **ECS:** Clusters, task definitions, services.
-- **EFS:** File systems, mount targets.
 - **SSM:** Parameter Store (create/read/update parameters).
 - **S3:** Buckets (e.g. optional remote state), versioning, encryption.
 - **DynamoDB:** Optional state locking table.

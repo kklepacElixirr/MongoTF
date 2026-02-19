@@ -15,17 +15,13 @@ mongodb_database      = "mongolab"
 ssh_allowed_cidrs     = ["YOUR_BASTION_OR_OFFICE_IP/32"]
 mongodb_allowed_cidrs = ["YOUR_APP_SERVER_IP/32", "YOUR_OFFICE_IP/32"]
 
-# EC2 — larger instance and disk
+# EC2 — larger instance and disk (root = OS; data = Payload CMS DB)
 ec2_instance_type        = "t3.medium"
+ec2_root_volume_size     = 20
 ec2_mongodb_volume_size  = 100
 ec2_ami                  = ""
 
 key_pair_name = "mongolabkey"
-mongo_image   = "mongo:8.2"
-
-log_retention_days = 90
-ecs_task_cpu       = "1024"
-ecs_task_memory    = "2048"
 
 # Prod: enable SNS alerts for EC2 health
 ec2_health_alarm_sns_topic_arn = "arn:aws:sns:eu-central-1:123456789012:mongodb-prod-alerts"

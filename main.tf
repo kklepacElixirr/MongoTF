@@ -93,27 +93,6 @@ resource "aws_ssm_parameter" "mongodb_root_username" {
   value = var.mongodb_root_username
 }
 
-resource "aws_iam_policy" "ssm_parameter_access" {
-  name        = "ssm_parameter_access"
-  description = "Allow ECS tasks to access SSM parameters"
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "ssm:GetParameters",
-          "ssm:GetParameter",
-          "ssm:DescribeParameters",
-          "kms:Decrypt"
-        ]
-        Resource = aws_ssm_parameter.mongodb_secret_password.arn
-      }
-    ]
-  })
-}
-
 # EC2 instance profile - SSM access for MongoDB auth setup
 resource "aws_iam_role" "ec2_mongo_role" {
   name = "${local.name_prefix}ec2-mongo-role"
@@ -163,55 +142,6 @@ resource "aws_iam_instance_profile" "ec2_mongo" {
   role = aws_iam_role.ec2_mongo_role.name
 }
 
-# After the code for AWS SSM Paramter Store parameter has been added we must apply the changes to the infrastructure so we are able to change the password.
-# If you are using the example code to deploy the infrastructure, you should comment out everything below here before running terraform init and apply.
-
-resource "aws_iam_role" "ecs_mongo_task_execution_role" {
-  name = "ecs_mongo_task_execution_role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRole"
-        Principal = {
-          Service = "ecs-tasks.amazonaws.com"
-        }
-        Effect = "Allow"
-        Sid    = ""
-      },
-    ]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "ecs_mongo_task_execution_role_policy" {
-  role       = aws_iam_role.ecs_mongo_task_execution_role.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
-}
-
-resource "aws_iam_role_policy_attachment" "ecs_ssm_parameter_access" {
-  role       = aws_iam_role.ecs_mongo_task_execution_role.name
-  policy_arn = aws_iam_policy.ssm_parameter_access.arn
-}
-
-resource "aws_iam_role" "ecs_mongo_task_role" {
-  name = "ecs_mongo_task_role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRole"
-        Principal = {
-          Service = "ecs-tasks.amazonaws.com"
-        }
-        Effect = "Allow"
-        Sid    = ""
-      },
-    ]
-  })
-}
-
 resource "aws_security_group" "ec2_sg" {
   name        = "${local.name_prefix}ec2_sg"
   description = "Security group for EC2 instance"
@@ -237,214 +167,6 @@ resource "aws_security_group" "ec2_sg" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
-}
-
-resource "aws_security_group" "mongo_ecs_tasks_sg" {
-  name        = "${local.name_prefix}mongo-ecs-tasks-sg"
-  description = "Security group for ECS MongoDB tasks"
-  vpc_id      = data.aws_vpc.default.id
-
-  ingress {
-    from_port       = 27017
-    to_port         = 27017
-    protocol        = "tcp"
-    security_groups = [aws_security_group.ec2_sg.id]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = {
-    Name = "mongolab-ecs-tasks-sg"
-  }
-}
-
-resource "aws_security_group" "efs_sg" {
-  name        = "${local.name_prefix}efs-mongolab-sg"
-  description = "Security group for EFS"
-  vpc_id      = data.aws_vpc.default.id
-
-  ingress {
-    from_port   = 2049
-    to_port     = 2049
-    protocol    = "tcp"
-    cidr_blocks = [data.aws_vpc.default.cidr_block]
-  }
-}
-
-resource "aws_efs_file_system" "mongolab_file_system" {
-  creation_token = "mongoefs"
-  encrypted      = true
-
-  tags = {
-    Name = "mongoefs"
-  }
-}
-
-resource "aws_efs_mount_target" "efs_mount_target" {
-  count           = length(data.aws_subnets.default.ids)
-  file_system_id  = aws_efs_file_system.mongolab_file_system.id
-  subnet_id       = tolist(data.aws_subnets.default.ids)[count.index]
-  security_groups = [aws_security_group.efs_sg.id]
-}
-
-
-resource "aws_iam_policy" "ecs_efs_access_policy" {
-  name        = "ecs_efs_access_policy"
-  description = "Allow ECS tasks to access EFS"
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = [
-          "elasticfilesystem:ClientMount",
-          "elasticfilesystem:ClientWrite",
-          "elasticfilesystem:DescribeFileSystems",
-          "elasticfilesystem:DescribeMountTargets"
-        ]
-        Resource = aws_efs_file_system.mongolab_file_system.arn
-        Effect   = "Allow"
-      },
-    ]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "ecr_efs_access_policy_attachment" {
-  role       = aws_iam_role.ecs_mongo_task_role.name
-  policy_arn = aws_iam_policy.ecs_efs_access_policy.arn
-}
-
-
-resource "aws_cloudwatch_log_group" "ecs_logs" {
-  name              = "/ecs/mongolab-${var.environment}"
-  retention_in_days = var.log_retention_days
-}
-
-resource "aws_ecs_cluster" "mongolab_cluster" {
-  name = "mongolab-cluster"
-}
-
-resource "aws_ecs_task_definition" "mongo_task_definition" {
-  family                   = "mongolab-mongodb-${var.environment}"
-  requires_compatibilities = ["FARGATE"]
-  network_mode             = "awsvpc"
-  cpu                      = var.ecs_task_cpu
-  memory                   = var.ecs_task_memory
-  execution_role_arn       = aws_iam_role.ecs_mongo_task_execution_role.arn
-  task_role_arn            = aws_iam_role.ecs_mongo_task_role.arn
-
-  container_definitions = jsonencode([
-    {
-      name      = "mongo",
-      image     = var.mongo_image,
-      cpu       = 256,
-      memory    = 512,
-      essential = true,
-      portMappings = [
-        {
-          protocol      = "tcp"
-          containerPort = 27017
-          hostPort      = 27017
-        }
-      ]
-      mountPoints = [
-        {
-          sourceVolume  = "mongoEfsVolume"
-          containerPath = "/data/db"
-          readOnly      = false
-        },
-      ],
-      environment = [
-        {
-          name  = "MONGO_INITDB_ROOT_USERNAME"
-          value = var.mongodb_root_username
-        },
-        {
-          name  = "MONGO_INITDB_DATABASE"
-          value = var.mongodb_database
-        }
-      ],
-      secrets = [
-        {
-          name      = "MONGO_INITDB_ROOT_PASSWORD"
-          valueFrom = aws_ssm_parameter.mongodb_secret_password.name
-        }
-      ],
-      healthcheck = {
-        command     = ["CMD-SHELL", "echo 'db.runCommand(\\\"ping\\\").ok' | mongosh mongodb://localhost:27017/test"]
-        interval    = 30
-        timeout     = 15
-        retries     = 3
-        startPeriod = 15
-      }
-      logConfiguration = {
-        logDriver = "awslogs"
-        options = {
-          awslogs-group         = aws_cloudwatch_log_group.ecs_logs.name
-          awslogs-region        = var.aws_region
-          awslogs-stream-prefix = "mongodb"
-        }
-      }
-    }
-  ])
-
-  volume {
-    name = "mongoEfsVolume"
-
-    efs_volume_configuration {
-      file_system_id     = aws_efs_file_system.mongolab_file_system.id
-      transit_encryption = "ENABLED"
-      authorization_config {
-        iam = "ENABLED"
-      }
-    }
-  }
-}
-
-resource "aws_service_discovery_private_dns_namespace" "mongolab_monitoring" {
-  name = "mongolab.local"
-  vpc  = data.aws_vpc.default.id
-}
-
-resource "aws_service_discovery_service" "mongo_discovery_service" {
-  name = "mongodb"
-
-  dns_config {
-    namespace_id = aws_service_discovery_private_dns_namespace.mongolab_monitoring.id
-
-    dns_records {
-      ttl  = 10
-      type = "A"
-    }
-  }
-
-  health_check_custom_config {
-    failure_threshold = 1
-  }
-}
-
-resource "aws_ecs_service" "mongo_service" {
-  name            = "mongolab-mongodb-service"
-  cluster         = aws_ecs_cluster.mongolab_cluster.id
-  task_definition = aws_ecs_task_definition.mongo_task_definition.id
-  desired_count   = 1
-  launch_type     = "FARGATE"
-
-  network_configuration {
-    subnets          = data.aws_subnets.default.ids
-    security_groups  = [aws_security_group.mongo_ecs_tasks_sg.id]
-    assign_public_ip = true
-  }
-
-  service_registries {
-    registry_arn = aws_service_discovery_service.mongo_discovery_service.arn
-  }
-
 }
 
 # EC2 instance - SSH key (generated by Terraform if you don't have one)
@@ -500,6 +222,13 @@ resource "aws_instance" "mongolab_ec2_instance" {
     aws_region     = var.aws_region
     ssm_path_base = local.ssm_path
   })
+
+  root_block_device {
+    volume_size           = var.ec2_root_volume_size
+    volume_type           = "gp3"
+    encrypted             = true
+    delete_on_termination = true
+  }
 
   tags = {
     Name        = "mongolab-mongodb-${var.environment}"

@@ -1,6 +1,6 @@
 # MongoDB on AWS (Terraform)
 
-Terraform module that provisions **MongoDB 8.2** on a single EC2 instance with EBS-backed persistence, Elastic IP, and optional ECS task definition for containerized MongoDB.
+Terraform module that provisions **MongoDB 8.2** on a single EC2 instance with EBS-backed persistence and Elastic IP.
 
 ---
 
@@ -30,7 +30,7 @@ Terraform module that provisions **MongoDB 8.2** on a single EC2 instance with E
 | **EC2** | Amazon Linux 2023; MongoDB 8.2 installed via `user-data.sh` at boot |
 | **EBS** | Encrypted gp3 volume for `/var/lib/mongo` (data persists across instance replacement) |
 | **Elastic IP** | Static public IP used in the connection string |
-| **Auth** | Root credentials in **AWS SSM Parameter Store** (`/mongodb/MONGO_INITDB_*`), fetched at instance boot and by ECS tasks |
+| **Auth** | Root credentials in **AWS SSM Parameter Store** (`/mongodb/MONGO_INITDB_*`), fetched at instance boot |
 
 ---
 

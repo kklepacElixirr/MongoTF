@@ -15,18 +15,13 @@ mongodb_database      = "mongolab"
 ssh_allowed_cidrs     = ["0.0.0.0/0"]
 mongodb_allowed_cidrs = ["0.0.0.0/0"]
 
-# EC2 — smaller/cheaper for dev
+# EC2 — smaller/cheaper for dev; root = OS+binaries, data = MongoDB/Payload DB
 ec2_instance_type        = "t2.micro"
+ec2_root_volume_size     = 16
 ec2_mongodb_volume_size  = 20
 ec2_ami                  = "" # empty = latest Amazon Linux 2023
 
 key_pair_name = "mongolabkey"
-mongo_image   = "mongo:latest"
-
-# Logs and ECS (if used)
-log_retention_days = 7
-ecs_task_cpu       = "256"
-ecs_task_memory    = "512"
 
 # Optional: SNS for EC2 health alarm
 ec2_health_alarm_sns_topic_arn = null
